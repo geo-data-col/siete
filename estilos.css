@@ -1,0 +1,229 @@
+/* Reset básico */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Evita barras de desplazamiento innecesarias */
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Contenedor principal */
+.contenedor-principal {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+}
+
+/* Panel lateral */
+.panel-lateral {
+    width: 320px;
+    min-width: 320px;
+    background-color: #1e293b;
+    color: white;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    overflow-y: auto;
+}
+
+.panel-lateral h2 {
+    font-size: 1.5rem;
+    border-bottom: 2px solid #38bdf8;
+    padding-bottom: 10px;
+}
+
+.panel-lateral p {
+    color: #cbd5e1;
+    line-height: 1.4;
+}
+
+/* Grupo de botones */
+.grupo-botones {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Botones */
+.btn {
+    background-color: #334155;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    text-align: left;
+    transition: all 0.3s ease;
+}
+
+.btn:hover {
+    background-color: #475569;
+    transform: translateX(3px);
+}
+
+.btn-hurto:hover {
+    border-left: 5px solid #ef4444;
+}
+
+.btn-homicidio:hover {
+    border-left: 5px solid #f97316;
+}
+
+.btn-calor:hover {
+    border-left: 5px solid #eab308;
+}
+
+/* Caja de búsqueda */
+.info-adicional {
+    margin-top: 10px;
+}
+
+.info-adicional h3 {
+    margin-bottom: 10px;
+    font-size: 1rem;
+}
+
+#buscador {
+    width: 100%;
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid #475569;
+    background-color: #0f172a;
+    color: white;
+}
+
+#buscador::placeholder {
+    color: #94a3b8;
+}
+
+/* Contenedor del mapa */
+#mapa {
+    flex: 1;
+    height: 100%;
+    width: 100%;
+}
+
+/* ==========================================================================
+   ESTILOS PARA LA PANTALLA DE LOGIN (SIETE)
+   ========================================================================== */
+
+/* Fondo de la pantalla completa del Login */
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); /* Degradado azul oscuro */
+}
+
+/* Tarjeta central del Login */
+.login-card {
+    background-color: #1e293b;
+    padding: 40px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+    border: 1px solid #334155;
+}
+
+/* Contenedor del Logotipo institucional */
+.login-logo {
+    margin-bottom: 30px;
+}
+
+.icon-logo {
+    font-size: 3.5rem;
+    display: block;
+    margin-bottom: 10px;
+}
+
+.login-logo h1 {
+    color: #ffffff;
+    font-size: 2.2rem;
+    font-weight: 800;
+    letter-spacing: 2px;
+    margin-bottom: 5px;
+}
+
+.login-logo p {
+    color: #94a3b8;
+    font-size: 0.9rem;
+}
+
+/* Grupos de casillas (Inputs) */
+.grupo-input {
+    text-align: left;
+    margin-bottom: 20px;
+}
+
+.grupo-input label {
+    display: block;
+    color: #cbd5e1;
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.grupo-input input {
+    width: 100%;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px solid #475569;
+    background-color: #0f172a;
+    color: #ffffff;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+}
+
+/* Cuando el usuario hace clic para escribir */
+.grupo-input input:focus {
+    outline: none;
+    border-color: #38bdf8; /* Azul brillante al enfocar */
+}
+
+/* Botón de Ingresar */
+.btn-ingresar {
+    width: 100%;
+    background-color: #38bdf8;
+    color: #0f172a;
+    border: none;
+    padding: 14px;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.1s;
+    margin-top: 10px;
+}
+
+.btn-ingresar:hover {
+    background-color: #0ea5e9;
+}
+
+.btn-ingresar:active {
+    transform: scale(0.98);
+}
+
+/* Mensajes de error por si se equivocan en la clave */
+.mensaje-error {
+    color: #f87171;
+    font-size: 0.85rem;
+    margin-top: 15px;
+    font-weight: 500;
+}
+
+

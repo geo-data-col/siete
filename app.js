@@ -1,0 +1,558 @@
+// ==========================================================================
+// SIETE — app.js VERSIÓN 5 (con estadísticas y exportación)
+// ==========================================================================
+
+const FIREBASE_USUARIOS = "https://siete-1b82d-default-rtdb.firebaseio.com/usuarios_autorizados.json";
+const FIREBASE_DELITOS  = "https://siete-1b82d-default-rtdb.firebaseio.com/delitos";
+
+const formularioLogin     = document.getElementById('formulario-login');
+const pantallaLogin       = document.getElementById('pantalla-login');
+const contenidoPlataforma = document.getElementById('contenido-plataforma');
+const mensajeError        = document.getElementById('error-login');
+const btnCerrarSesion     = document.getElementById('btn-cerrar-sesion');
+
+let mapa;
+let capaActual;
+let capaCalor;
+let todosLosDelitos = {};
+let registrosFiltrados = []; // Guarda los registros del último filtro para exportar
+
+const COLORES = {
+    homicidios:         '#ef4444',
+    lesiones:           '#f97316',
+    hurto_personas:     '#eab308',
+    hurto_residencias:  '#84cc16',
+    hurto_comercio:     '#06b6d4',
+    hurto_bancos:       '#8b5cf6',
+    hurto_abigeato:     '#ec4899',
+    hurto_automotores:  '#14b8a6',
+    hurto_motocicletas: '#f59e0b',
+    hurto_celulares:    '#3b82f6',
+    hurto_bicicletas:   '#10b981',
+    extorsion:          '#6366f1',
+    secuestro:          '#dc2626',
+    terrorismo:         '#1f2937',
+};
+
+const NOMBRES = {
+    homicidios:         'Homicidios',
+    lesiones:           'Lesiones Personales',
+    hurto_personas:     'Hurto a Personas',
+    hurto_residencias:  'Hurto Residencias',
+    hurto_comercio:     'Hurto Comercio',
+    hurto_bancos:       'Hurto Bancos',
+    hurto_abigeato:     'Hurto Abigeato',
+    hurto_automotores:  'Hurto Automotores',
+    hurto_motocicletas: 'Hurto Motocicletas',
+    hurto_celulares:    'Hurto Celulares',
+    hurto_bicicletas:   'Hurto Bicicletas',
+    extorsion:          'Extorsión',
+    secuestro:          'Secuestro',
+    terrorismo:         'Terrorismo',
+};
+
+const FILTRO_CONDUCTA = {
+    homicidios: '103',
+    lesiones:   '111',
+};
+
+// ==========================================================================
+// FUNCIONES DE FORMATO
+// ==========================================================================
+function aNumero(valor) {
+    if (valor === undefined || valor === null) return NaN;
+    if (typeof valor === 'number') return valor;
+    return parseFloat(String(valor).replace(',', '.'));
+}
+
+function aFecha(valor) {
+    if (!valor) return null;
+    const num = Number(valor);
+    if (!isNaN(num) && num > 40000) {
+        return new Date(Date.UTC(1899, 11, 30) + num * 86400000);
+    }
+    const f = new Date(valor);
+    return isNaN(f) ? null : f;
+}
+
+function formatearFecha(valor) {
+    if (!valor) return '';
+    const num = Number(valor);
+    if (!isNaN(num) && num > 40000) {
+        const fecha = new Date(Date.UTC(1899, 11, 30) + num * 86400000);
+        const dia  = String(fecha.getUTCDate()).padStart(2, '0');
+        const mes  = String(fecha.getUTCMonth() + 1).padStart(2, '0');
+        const anio = fecha.getUTCFullYear();
+        return `${dia}/${mes}/${anio}`;
+    }
+    return valor;
+}
+
+function formatearHora(valor) {
+    if (!valor) return '';
+    const num = Number(valor);
+    if (!isNaN(num) && num >= 0 && num < 1) {
+        const totalMinutos = Math.round(num * 24 * 60);
+        const horas   = String(Math.floor(totalMinutos / 60)).padStart(2, '0');
+        const minutos = String(totalMinutos % 60).padStart(2, '0');
+        return `${horas}:${minutos}`;
+    }
+    return valor;
+}
+
+// ==========================================================================
+// LOGIN
+// ==========================================================================
+formularioLogin.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const usuarioDigitado  = document.getElementById('usuario-nombre').value.trim();
+    const passwordDigitado = document.getElementById('usuario-password').value.trim();
+    mensajeError.innerText = "Conectando con SIETE...";
+    try {
+        const respuesta = await fetch(FIREBASE_USUARIOS);
+        const usuariosBaseDatos = await respuesta.json();
+        if (!usuariosBaseDatos) { mensajeError.innerText = "Error: Base de datos vacía."; return; }
+        if (usuariosBaseDatos[usuarioDigitado]) {
+            const claveCorrecta = usuariosBaseDatos[usuarioDigitado].clave;
+            if (passwordDigitado === claveCorrecta) {
+                iniciarSistema();
+            } else {
+                mensajeError.innerText = "Contraseña incorrecta.";
+            }
+        } else {
+            mensajeError.innerText = "El usuario no está autorizado.";
+        }
+    } catch (error) {
+        console.error(error);
+        mensajeError.innerText = "Error de conexión con Firebase.";
+    }
+});
+
+// ==========================================================================
+// INICIAR SISTEMA
+// ==========================================================================
+async function iniciarSistema() {
+    pantallaLogin.style.display = 'none';
+    contenidoPlataforma.style.display = 'flex';
+    if (!mapa) {
+        mapa = L.map('mapa').setView([6.2518, -75.5636], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(mapa);
+        setTimeout(() => { mapa.invalidateSize(); }, 200);
+    }
+    mostrarNotificacion("⏳ Cargando datos desde Firebase...");
+    await cargarTodosLosDelitos();
+    aplicarFiltros();
+    mostrarNotificacion("✅ Datos cargados correctamente");
+}
+
+// ==========================================================================
+// CARGAR DATOS
+// ==========================================================================
+async function cargarTodosLosDelitos() {
+    const tipos = Object.keys(COLORES);
+    for (const tipo of tipos) {
+        try {
+            const url = `${FIREBASE_DELITOS}/${tipo}.json`;
+            const respuesta = await fetch(url);
+            const datos = await respuesta.json();
+            if (datos) {
+                todosLosDelitos[tipo] = Object.values(datos).filter(r => r !== null);
+                console.log(`✅ ${tipo}: ${todosLosDelitos[tipo].length} registros`);
+            } else {
+                todosLosDelitos[tipo] = [];
+            }
+        } catch (error) {
+            console.error(`Error cargando ${tipo}:`, error);
+            todosLosDelitos[tipo] = [];
+        }
+    }
+}
+
+// ==========================================================================
+// APLICAR FILTROS
+// ==========================================================================
+function aplicarFiltros() {
+    const tipoSeleccionado     = document.getElementById('filtro-delito').value;
+    const estacionSeleccionada = document.getElementById('filtro-estacion').value.toUpperCase().trim();
+    const fechaInicio          = document.getElementById('filtro-fecha-inicio').value;
+    const fechaFin             = document.getElementById('filtro-fecha-fin').value;
+    const modoCalor            = document.getElementById('filtro-modo').value === 'calor';
+
+    const dInicio = fechaInicio ? new Date(fechaInicio + 'T00:00:00Z') : null;
+    const dFin    = fechaFin    ? new Date(fechaFin    + 'T23:59:59Z') : null;
+
+    if (capaActual) { mapa.removeLayer(capaActual); capaActual = null; }
+    if (capaCalor)  { mapa.removeLayer(capaCalor);  capaCalor  = null; }
+
+    const tiposAMostrar = tipoSeleccionado === 'todos'
+        ? Object.keys(COLORES)
+        : [tipoSeleccionado];
+
+    const puntosCalor = [];
+    capaActual = L.layerGroup();
+    registrosFiltrados = []; // Limpiar registros anteriores
+    let totalPuntos = 0;
+
+    for (const tipo of tiposAMostrar) {
+        const registros = todosLosDelitos[tipo] || [];
+        const color  = COLORES[tipo] || '#94a3b8';
+        const nombre = NOMBRES[tipo] || tipo;
+        const articuloFiltro = FILTRO_CONDUCTA[tipo] || null;
+
+        for (const registro of registros) {
+            if (!registro) continue;
+
+            if (articuloFiltro) {
+                const conducta = String(registro.DESCRIPCION_CONDUCTA || '').toUpperCase();
+                if (!conducta.includes(articuloFiltro)) continue;
+            }
+
+            if (estacionSeleccionada) {
+                const estacion = String(registro['JURIS_ESTACIÓN _ ÁREA'] || '').toUpperCase();
+                if (!estacion.includes(estacionSeleccionada)) continue;
+            }
+
+            if (dInicio || dFin) {
+                const fechaRegistro = aFecha(registro.FECHA_HECHO);
+                if (!fechaRegistro) continue;
+                if (dInicio && fechaRegistro < dInicio) continue;
+                if (dFin    && fechaRegistro > dFin)    continue;
+            }
+
+            const lat = aNumero(registro.LATITUD || registro.LATITUD_HECHO);
+            const lon = aNumero(registro.LONGITUD || registro.LONGITUD_HECHO);
+            if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) continue;
+
+            // Guardar registro para exportar y estadísticas
+            registrosFiltrados.push({ ...registro, _tipo: nombre });
+
+            if (modoCalor) {
+                puntosCalor.push([lat, lon, 1]);
+            } else {
+                const circulo = L.circleMarker([lat, lon], {
+                    radius: 5, fillColor: color, color: '#fff',
+                    weight: 1, opacity: 0.9, fillOpacity: 0.8
+                });
+                circulo.bindPopup(construirPopup(registro, nombre, color), { maxWidth: 320 });
+                capaActual.addLayer(circulo);
+            }
+            totalPuntos++;
+        }
+    }
+
+    if (modoCalor && puntosCalor.length > 0) {
+        capaCalor = L.heatLayer(puntosCalor, {
+            radius: 20, blur: 25, maxZoom: 17,
+            gradient: { 0.2: '#3b82f6', 0.4: '#10b981', 0.6: '#eab308', 0.8: '#f97316', 1.0: '#ef4444' }
+        }).addTo(mapa);
+    } else {
+        capaActual.addTo(mapa);
+    }
+
+    mostrarNotificacion(`📍 ${totalPuntos.toLocaleString()} registros encontrados`);
+}
+
+// ==========================================================================
+// POPUP
+// ==========================================================================
+function construirPopup(registro, nombreDelito, color) {
+    const columnasImportantes = [
+        'FECHA_HECHO', 'HORA_HECHO', 'DIA_SEMANA', 'MES',
+        'DESCRIPCION_CONDUCTA', 'MODALIDAD', 'ARMAS_MEDIOS',
+        'BARRIOS_HECHO', 'COMUNAS_ZONAS_DESCRIPCION', 'DIRECCION_HECHO',
+        'JURIS_CAI', 'JURIS_ESTACIÓN _ ÁREA', 'ZONA',
+        'GENERO', 'EDAD', 'ESTADO_CIVIL_PERSONA'
+    ];
+    let filas = '';
+    for (const clave of columnasImportantes) {
+        let valor = registro[clave];
+        if (!valor || valor === 'null' || valor === 'None') continue;
+        if (clave === 'FECHA_HECHO') valor = formatearFecha(valor);
+        if (clave === 'HORA_HECHO')  valor = formatearHora(valor);
+        const etiqueta = clave.replace(/_/g, ' ').replace(' HECHO', '');
+        filas += `<tr>
+            <td style="font-weight:600;color:#94a3b8;padding:3px 8px 3px 0;font-size:0.72rem;white-space:nowrap;">${etiqueta}</td>
+            <td style="color:#e2e8f0;padding:3px 0;font-size:0.72rem;">${valor}</td>
+        </tr>`;
+    }
+    return `<div style="background:#1e293b;color:white;border-radius:8px;min-width:240px;">
+        <div style="background:${color};padding:8px 12px;border-radius:8px 8px 0 0;font-weight:bold;font-size:0.85rem;">
+            🚨 ${nombreDelito}
+        </div>
+        <div style="padding:10px 12px;max-height:280px;overflow-y:auto;">
+            <table style="border-collapse:collapse;width:100%;">${filas}</table>
+        </div>
+    </div>`;
+}
+
+// ==========================================================================
+// PANEL DE ESTADÍSTICAS
+// ==========================================================================
+function abrirEstadisticas() {
+    if (registrosFiltrados.length === 0) {
+        mostrarNotificacion("⚠️ Primero aplica un filtro para ver estadísticas");
+        return;
+    }
+
+    // Contar por modalidad
+    const porModalidad = {};
+    const porDia = {};
+    const porHora = {};
+
+    for (const r of registrosFiltrados) {
+        const mod  = r.MODALIDAD   || 'SIN DATO';
+        const dia  = r.DIA_SEMANA  || 'SIN DATO';
+        const hora = formatearHora(r.HORA_HECHO) || 'SIN DATO';
+        const horaBloque = hora !== 'SIN DATO'
+            ? `${hora.split(':')[0]}:00` : 'SIN DATO';
+
+        porModalidad[mod]        = (porModalidad[mod]        || 0) + 1;
+        porDia[dia]              = (porDia[dia]              || 0) + 1;
+        porHora[horaBloque]      = (porHora[horaBloque]      || 0) + 1;
+    }
+
+    const tablaModalidad = Object.entries(porModalidad)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `<tr>
+            <td style="padding:5px 10px;border-bottom:1px solid #334155;">${k}</td>
+            <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:right;font-weight:bold;color:#38bdf8;">${v}</td>
+        </tr>`).join('');
+
+    const tablaDia = Object.entries(porDia)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `<tr>
+            <td style="padding:5px 10px;border-bottom:1px solid #334155;">${k}</td>
+            <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:right;font-weight:bold;color:#38bdf8;">${v}</td>
+        </tr>`).join('');
+
+    const tablaHora = Object.entries(porHora)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([k, v]) => `<tr>
+            <td style="padding:5px 10px;border-bottom:1px solid #334155;">${k}</td>
+            <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:right;font-weight:bold;color:#38bdf8;">${v}</td>
+        </tr>`).join('');
+
+    // Crear ventana flotante
+    let panel = document.getElementById('panel-estadisticas');
+    if (panel) panel.remove();
+
+    panel = document.createElement('div');
+    panel.id = 'panel-estadisticas';
+    panel.style.cssText = `
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        background: #1e293b; color: white; border-radius: 12px;
+        width: 520px; max-width: 95vw; max-height: 85vh;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        border: 1px solid #334155; z-index: 99999;
+        display: flex; flex-direction: column; overflow: hidden;
+    `;
+
+    panel.innerHTML = `
+        <!-- ENCABEZADO -->
+        <div style="background:#0f172a;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #38bdf8;">
+            <div>
+                <h2 style="margin:0;font-size:1.1rem;color:#38bdf8;">📊 Panel de Estadísticas</h2>
+                <small style="color:#94a3b8;">${registrosFiltrados.length.toLocaleString()} registros filtrados</small>
+            </div>
+            <button onclick="document.getElementById('panel-estadisticas').remove()"
+                style="background:#334155;border:none;color:white;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:1rem;">✕</button>
+        </div>
+
+        <!-- CONTENIDO SCROLLABLE -->
+        <div style="overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:20px;">
+
+            <!-- BOTONES EXPORTAR -->
+            <div style="display:flex;gap:10px;">
+                <button onclick="exportarExcel()"
+                    style="flex:1;background:#10b981;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:0.9rem;">
+                    📥 Exportar Excel
+                </button>
+                <button onclick="exportarPDF()"
+                    style="flex:1;background:#ef4444;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:0.9rem;">
+                    📄 Exportar PDF
+                </button>
+            </div>
+
+            <!-- POR MODALIDAD -->
+            <div>
+                <h3 style="margin:0 0 10px;font-size:0.95rem;color:#cbd5e1;border-bottom:1px solid #334155;padding-bottom:6px;">
+                    🔹 Por Modalidad
+                </h3>
+                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                    ${tablaModalidad || '<tr><td style="padding:5px;color:#94a3b8;">Sin datos</td></tr>'}
+                </table>
+            </div>
+
+            <!-- POR DÍA -->
+            <div>
+                <h3 style="margin:0 0 10px;font-size:0.95rem;color:#cbd5e1;border-bottom:1px solid #334155;padding-bottom:6px;">
+                    📅 Por Día de Semana
+                </h3>
+                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                    ${tablaDia || '<tr><td style="padding:5px;color:#94a3b8;">Sin datos</td></tr>'}
+                </table>
+            </div>
+
+            <!-- POR HORA -->
+            <div>
+                <h3 style="margin:0 0 10px;font-size:0.95rem;color:#cbd5e1;border-bottom:1px solid #334155;padding-bottom:6px;">
+                    🕐 Por Hora del Día
+                </h3>
+                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                    ${tablaHora || '<tr><td style="padding:5px;color:#94a3b8;">Sin datos</td></tr>'}
+                </table>
+            </div>
+
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+}
+
+// ==========================================================================
+// EXPORTAR EXCEL
+// ==========================================================================
+function exportarExcel() {
+    if (registrosFiltrados.length === 0) {
+        mostrarNotificacion("⚠️ No hay datos para exportar");
+        return;
+    }
+
+    // Construir CSV con todos los campos
+    const columnas = Object.keys(registrosFiltrados[0]).filter(c => c !== '_tipo');
+    let csv = columnas.join(';') + '\n';
+
+    for (const r of registrosFiltrados) {
+        const fila = columnas.map(col => {
+            let val = r[col] ?? '';
+            if (col === 'FECHA_HECHO') val = formatearFecha(val);
+            if (col === 'HORA_HECHO')  val = formatearHora(val);
+            return `"${String(val).replace(/"/g, '""')}"`;
+        });
+        csv += fila.join(';') + '\n';
+    }
+
+    // Descargar archivo
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `SIETE_export_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    mostrarNotificacion("✅ Excel descargado correctamente");
+}
+
+// ==========================================================================
+// EXPORTAR PDF
+// ==========================================================================
+function exportarPDF() {
+    if (registrosFiltrados.length === 0) {
+        mostrarNotificacion("⚠️ No hay datos para exportar");
+        return;
+    }
+
+    // Contar estadísticas
+    const porModalidad = {};
+    const porDia = {};
+    for (const r of registrosFiltrados) {
+        const mod = r.MODALIDAD  || 'SIN DATO';
+        const dia = r.DIA_SEMANA || 'SIN DATO';
+        porModalidad[mod] = (porModalidad[mod] || 0) + 1;
+        porDia[dia]       = (porDia[dia]       || 0) + 1;
+    }
+
+    const filasModalidad = Object.entries(porModalidad)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
+
+    const filasHora = Object.entries(porDia)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
+
+    const ventana = window.open('', '_blank');
+    ventana.document.write(`
+        <!DOCTYPE html><html><head>
+        <meta charset="UTF-8">
+        <title>SIETE - Reporte</title>
+        <style>
+            body { font-family: Arial, sans-serif; padding: 30px; color: #1e293b; }
+            h1 { color: #0f172a; border-bottom: 3px solid #38bdf8; padding-bottom: 10px; }
+            h2 { color: #334155; margin-top: 25px; font-size: 1rem; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
+            th { background: #1e293b; color: white; padding: 8px 12px; text-align: left; }
+            td { padding: 6px 12px; border-bottom: 1px solid #e2e8f0; }
+            tr:nth-child(even) { background: #f8fafc; }
+            .resumen { display: flex; gap: 20px; margin: 20px 0; }
+            .tarjeta { background: #0f172a; color: white; padding: 15px 20px; border-radius: 8px; text-align: center; flex: 1; }
+            .tarjeta .num { font-size: 2rem; font-weight: bold; color: #38bdf8; }
+            .pie { margin-top: 30px; font-size: 0.75rem; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+        </style>
+        </head><body>
+        <h1>🛡️ SIETE — Reporte de Delitos</h1>
+        <p>Fecha de generación: ${new Date().toLocaleDateString('es-CO')}</p>
+
+        <div class="resumen">
+            <div class="tarjeta"><div class="num">${registrosFiltrados.length}</div>Total Registros</div>
+            <div class="tarjeta"><div class="num">${Object.keys(porModalidad).length}</div>Modalidades</div>
+            <div class="tarjeta"><div class="num">${Object.keys(porDia).length}</div>Días con Casos</div>
+        </div>
+
+        <h2>Por Modalidad</h2>
+        <table><tr><th>Modalidad</th><th style="text-align:right">Cantidad</th></tr>${filasModalidad}</table>
+
+        <h2>Por Día de Semana</h2>
+        <table><tr><th>Día</th><th style="text-align:right">Cantidad</th></tr>${filasHora}</table>
+
+        <div class="pie">Sistema de Información Estadístico Territorial — SIETE</div>
+        <script>window.onload = () => window.print();<\/script>
+        </body></html>
+    `);
+    ventana.document.close();
+}
+
+// ==========================================================================
+// NOTIFICACIONES
+// ==========================================================================
+function mostrarNotificacion(mensaje) {
+    let notif = document.getElementById('notificacion-mapa');
+    if (!notif) {
+        notif = document.createElement('div');
+        notif.id = 'notificacion-mapa';
+        notif.style.cssText = `position:fixed;bottom:20px;right:20px;background:#1e293b;color:white;
+            padding:10px 16px;border-radius:8px;font-size:0.85rem;font-weight:600;
+            box-shadow:0 4px 12px rgba(0,0,0,0.3);border-left:4px solid #38bdf8;
+            z-index:9999;transition:opacity 0.3s;`;
+        document.body.appendChild(notif);
+    }
+    notif.innerText = mensaje;
+    notif.style.opacity = '1';
+    clearTimeout(notif._timeout);
+    notif._timeout = setTimeout(() => { notif.style.opacity = '0'; }, 4000);
+}
+
+// ==========================================================================
+// CERRAR SESIÓN
+// ==========================================================================
+btnCerrarSesion.addEventListener('click', () => {
+    contenidoPlataforma.style.display = 'none';
+    pantallaLogin.style.display = 'flex';
+    formularioLogin.reset();
+    mensajeError.innerText = "";
+    if (capaActual) { mapa.removeLayer(capaActual); capaActual = null; }
+    if (capaCalor)  { mapa.removeLayer(capaCalor);  capaCalor  = null; }
+});
+
+// ==========================================================================
+// LIMPIAR FILTROS
+// ==========================================================================
+function limpiarFiltros() {
+    document.getElementById('filtro-delito').value = 'todos';
+    document.getElementById('filtro-fecha-inicio').value = '';
+    document.getElementById('filtro-fecha-fin').value = '';
+    document.getElementById('filtro-estacion').value = '';
+    document.getElementById('filtro-modo').value = 'puntos';
+    aplicarFiltros();
+}
