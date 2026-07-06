@@ -1,5 +1,5 @@
 // ==========================================================================
-// SIETE — app.js VERSIÓN 6 (con gráficas en estadísticas)
+// SIETE — app.js VERSIÓN 7 (con gráfica de días corregida)
 // ==========================================================================
 
 const FIREBASE_USUARIOS = "https://siete-1b82d-default-rtdb.firebaseio.com/usuarios_autorizados.json";
@@ -14,7 +14,7 @@ const btnCerrarSesion     = document.getElementById('btn-cerrar-sesion');
 let mapa, capaActual, capaCalor;
 let todosLosDelitos = {};
 let registrosFiltrados = [];
-let graficaModalidad, graficaTipo, graficaMes; // instancias de Chart.js
+let graficaModalidad, graficaTipo, graficaMes, graficaDia; // ← graficaDia agregada
 
 const COLORES = {
     homicidios:         '#ef4444',
@@ -56,6 +56,7 @@ const FILTRO_CONDUCTA = {
 };
 
 const ORDEN_MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const ORDEN_DIAS  = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
 
 // ==========================================================================
 // FORMATO
@@ -272,30 +273,29 @@ function abrirEstadisticas() {
         return;
     }
 
-    // Calcular datos para gráficas
+    // ← PRIMERO calculamos todos los datos
     const porModalidad = {};
     const porTipo      = {};
     const porMes       = {};
+    const porDia       = {};
 
     for (const r of registrosFiltrados) {
         const mod  = r.MODALIDAD  || 'SIN DATO';
         const tipo = r._tipo      || 'SIN DATO';
         const mes  = String(r.MES || '').toLowerCase().trim() || 'sin dato';
+        const dia  = String(r.DIA_SEMANA || '').trim() || 'SIN DATO';
 
         porModalidad[mod]  = (porModalidad[mod]  || 0) + 1;
         porTipo[tipo]      = (porTipo[tipo]       || 0) + 1;
         porMes[mes]        = (porMes[mes]         || 0) + 1;
+        porDia[dia]        = (porDia[dia]         || 0) + 1;
     }
 
-    // Ordenar modalidad por cantidad
     const modalidadOrdenada = Object.entries(porModalidad).sort((a,b) => b[1]-a[1]).slice(0,10);
-    
-    // Ordenar meses cronológicamente
-    const mesesOrdenados = ORDEN_MESES
-        .filter(m => porMes[m])
-        .map(m => [m, porMes[m]]);
+    const mesesOrdenados    = ORDEN_MESES.filter(m => porMes[m]).map(m => [m, porMes[m]]);
+    const diasOrdenados     = ORDEN_DIAS.map(d => [d, porDia[d] || 0]);
 
-    // Crear o limpiar panel
+    // ← LUEGO creamos el panel HTML
     let panel = document.getElementById('panel-estadisticas');
     if (panel) panel.remove();
 
@@ -311,7 +311,6 @@ function abrirEstadisticas() {
     `;
 
     panel.innerHTML = `
-        <!-- HEADER -->
         <div style="background:#0f172a;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #38bdf8;flex-shrink:0;">
             <div>
                 <h2 style="margin:0;font-size:1.1rem;color:#38bdf8;">📊 Panel de Estadísticas</h2>
@@ -321,22 +320,13 @@ function abrirEstadisticas() {
                 style="background:#334155;border:none;color:white;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:1rem;">✕</button>
         </div>
 
-        <!-- BOTONES EXPORTAR -->
         <div style="padding:12px 20px;display:flex;gap:10px;flex-shrink:0;border-bottom:1px solid #334155;">
-            <button onclick="exportarExcel()"
-                style="flex:1;background:#10b981;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;">
-                📥 Exportar Excel
-            </button>
-            <button onclick="exportarPDF()"
-                style="flex:1;background:#ef4444;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;">
-                📄 Exportar PDF
-            </button>
+            <button onclick="exportarExcel()" style="flex:1;background:#10b981;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;">📥 Exportar Excel</button>
+            <button onclick="exportarPDF()"   style="flex:1;background:#ef4444;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;">📄 Exportar PDF</button>
         </div>
 
-        <!-- CONTENIDO CON GRÁFICAS -->
         <div style="overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:24px;">
 
-            <!-- TARJETAS RESUMEN -->
             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
                 <div style="background:#0f172a;padding:14px;border-radius:8px;text-align:center;border-left:4px solid #38bdf8;">
                     <div style="font-size:1.8rem;font-weight:bold;color:#38bdf8;">${registrosFiltrados.length.toLocaleString()}</div>
@@ -352,22 +342,24 @@ function abrirEstadisticas() {
                 </div>
             </div>
 
-            <!-- GRÁFICA 1: BARRAS POR MODALIDAD -->
             <div style="background:#0f172a;padding:16px;border-radius:8px;">
                 <h3 style="margin:0 0 12px;font-size:0.9rem;color:#cbd5e1;">🔹 Top 10 Modalidades</h3>
                 <canvas id="graficaModalidad" height="200"></canvas>
             </div>
 
-            <!-- GRÁFICA 2: TORTA POR TIPO DE DELITO -->
             <div style="background:#0f172a;padding:16px;border-radius:8px;">
                 <h3 style="margin:0 0 12px;font-size:0.9rem;color:#cbd5e1;">🍕 Por Tipo de Delito</h3>
                 <canvas id="graficaTipo" height="220"></canvas>
             </div>
 
-            <!-- GRÁFICA 3: LÍNEA DE TIEMPO POR MES -->
             <div style="background:#0f172a;padding:16px;border-radius:8px;">
                 <h3 style="margin:0 0 12px;font-size:0.9rem;color:#cbd5e1;">📈 Tendencia por Mes</h3>
                 <canvas id="graficaMes" height="180"></canvas>
+            </div>
+
+            <div style="background:#0f172a;padding:16px;border-radius:8px;">
+                <h3 style="margin:0 0 12px;font-size:0.9rem;color:#cbd5e1;">📅 Casos por Día de Semana</h3>
+                <canvas id="graficaDia" height="160"></canvas>
             </div>
 
         </div>
@@ -375,12 +367,12 @@ function abrirEstadisticas() {
 
     document.body.appendChild(panel);
 
-    // Destruir gráficas anteriores si existen
+    // ← Destruir gráficas anteriores
     if (graficaModalidad) graficaModalidad.destroy();
     if (graficaTipo)      graficaTipo.destroy();
     if (graficaMes)       graficaMes.destroy();
+    if (graficaDia)       graficaDia.destroy();
 
-    // Config común de Chart.js
     const opcionesBase = {
         plugins: { legend: { labels: { color: '#cbd5e1', font: { size: 11 } } } },
         scales: {
@@ -389,17 +381,12 @@ function abrirEstadisticas() {
         }
     };
 
-    // GRÁFICA 1 — Barras por modalidad
+    // GRÁFICA 1 — Barras horizontales por modalidad
     graficaModalidad = new Chart(document.getElementById('graficaModalidad'), {
         type: 'bar',
         data: {
             labels: modalidadOrdenada.map(([k]) => k.length > 20 ? k.slice(0,20)+'…' : k),
-            datasets: [{
-                label: 'Casos',
-                data: modalidadOrdenada.map(([,v]) => v),
-                backgroundColor: '#38bdf8',
-                borderRadius: 4,
-            }]
+            datasets: [{ label: 'Casos', data: modalidadOrdenada.map(([,v]) => v), backgroundColor: '#38bdf8', borderRadius: 4 }]
         },
         options: { ...opcionesBase, plugins: { legend: { display: false } }, indexAxis: 'y' }
     });
@@ -413,13 +400,10 @@ function abrirEstadisticas() {
             datasets: [{
                 data: tiposEntradas.map(([,v]) => v),
                 backgroundColor: tiposEntradas.map(([k]) => COLORES[Object.keys(NOMBRES).find(n => NOMBRES[n]===k)] || '#94a3b8'),
-                borderWidth: 2,
-                borderColor: '#0f172a'
+                borderWidth: 2, borderColor: '#0f172a'
             }]
         },
-        options: {
-            plugins: { legend: { position: 'right', labels: { color: '#cbd5e1', font: { size: 10 }, boxWidth: 12 } } }
-        }
+        options: { plugins: { legend: { position: 'right', labels: { color: '#cbd5e1', font: { size: 10 }, boxWidth: 12 } } } }
     });
 
     // GRÁFICA 3 — Línea de tiempo por mes
@@ -430,15 +414,26 @@ function abrirEstadisticas() {
             datasets: [{
                 label: 'Casos por mes',
                 data: mesesOrdenados.map(([,v]) => v),
-                borderColor: '#38bdf8',
-                backgroundColor: 'rgba(56,189,248,0.1)',
-                pointBackgroundColor: '#38bdf8',
-                pointRadius: 5,
-                fill: true,
-                tension: 0.3
+                borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.1)',
+                pointBackgroundColor: '#38bdf8', pointRadius: 5, fill: true, tension: 0.3
             }]
         },
         options: opcionesBase
+    });
+
+    // GRÁFICA 4 — Barras por día de semana con colores
+    graficaDia = new Chart(document.getElementById('graficaDia'), {
+        type: 'bar',
+        data: {
+            labels: diasOrdenados.map(([d]) => d),
+            datasets: [{
+                label: 'Casos',
+                data: diasOrdenados.map(([,v]) => v),
+                backgroundColor: ['#ef4444','#f97316','#eab308','#10b981','#3b82f6','#8b5cf6','#ec4899'],
+                borderRadius: 4,
+            }]
+        },
+        options: { ...opcionesBase, plugins: { legend: { display: false } } }
     });
 }
 
@@ -481,8 +476,7 @@ function exportarPDF() {
     }
     const filasM = Object.entries(porModalidad).sort((a,b)=>b[1]-a[1])
         .map(([k,v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
-    const filasD = Object.entries(porDia).sort((a,b)=>b[1]-a[1])
-        .map(([k,v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
+    const filasD = ORDEN_DIAS.map(d => `<tr><td>${d}</td><td style="text-align:right">${porDia[d]||0}</td></tr>`).join('');
 
     const w = window.open('', '_blank');
     w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SIETE - Reporte</title>
