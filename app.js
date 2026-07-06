@@ -1,5 +1,5 @@
 // ==========================================================================
-// SIETE — app.js VERSIÓN 5 (con estadísticas y exportación)
+// SIETE — app.js VERSIÓN 6 (con gráficas en estadísticas)
 // ==========================================================================
 
 const FIREBASE_USUARIOS = "https://siete-1b82d-default-rtdb.firebaseio.com/usuarios_autorizados.json";
@@ -11,11 +11,10 @@ const contenidoPlataforma = document.getElementById('contenido-plataforma');
 const mensajeError        = document.getElementById('error-login');
 const btnCerrarSesion     = document.getElementById('btn-cerrar-sesion');
 
-let mapa;
-let capaActual;
-let capaCalor;
+let mapa, capaActual, capaCalor;
 let todosLosDelitos = {};
-let registrosFiltrados = []; // Guarda los registros del último filtro para exportar
+let registrosFiltrados = [];
+let graficaModalidad, graficaTipo, graficaMes; // instancias de Chart.js
 
 const COLORES = {
     homicidios:         '#ef4444',
@@ -56,8 +55,10 @@ const FILTRO_CONDUCTA = {
     lesiones:   '111',
 };
 
+const ORDEN_MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
 // ==========================================================================
-// FUNCIONES DE FORMATO
+// FORMATO
 // ==========================================================================
 function aNumero(valor) {
     if (valor === undefined || valor === null) return NaN;
@@ -80,10 +81,7 @@ function formatearFecha(valor) {
     const num = Number(valor);
     if (!isNaN(num) && num > 40000) {
         const fecha = new Date(Date.UTC(1899, 11, 30) + num * 86400000);
-        const dia  = String(fecha.getUTCDate()).padStart(2, '0');
-        const mes  = String(fecha.getUTCMonth() + 1).padStart(2, '0');
-        const anio = fecha.getUTCFullYear();
-        return `${dia}/${mes}/${anio}`;
+        return `${String(fecha.getUTCDate()).padStart(2,'0')}/${String(fecha.getUTCMonth()+1).padStart(2,'0')}/${fecha.getUTCFullYear()}`;
     }
     return valor;
 }
@@ -92,10 +90,8 @@ function formatearHora(valor) {
     if (!valor) return '';
     const num = Number(valor);
     if (!isNaN(num) && num >= 0 && num < 1) {
-        const totalMinutos = Math.round(num * 24 * 60);
-        const horas   = String(Math.floor(totalMinutos / 60)).padStart(2, '0');
-        const minutos = String(totalMinutos % 60).padStart(2, '0');
-        return `${horas}:${minutos}`;
+        const totalMin = Math.round(num * 24 * 60);
+        return `${String(Math.floor(totalMin/60)).padStart(2,'0')}:${String(totalMin%60).padStart(2,'0')}`;
     }
     return valor;
 }
@@ -113,8 +109,7 @@ formularioLogin.addEventListener('submit', async (event) => {
         const usuariosBaseDatos = await respuesta.json();
         if (!usuariosBaseDatos) { mensajeError.innerText = "Error: Base de datos vacía."; return; }
         if (usuariosBaseDatos[usuarioDigitado]) {
-            const claveCorrecta = usuariosBaseDatos[usuarioDigitado].clave;
-            if (passwordDigitado === claveCorrecta) {
+            if (passwordDigitado === usuariosBaseDatos[usuarioDigitado].clave) {
                 iniciarSistema();
             } else {
                 mensajeError.innerText = "Contraseña incorrecta.";
@@ -151,20 +146,12 @@ async function iniciarSistema() {
 // CARGAR DATOS
 // ==========================================================================
 async function cargarTodosLosDelitos() {
-    const tipos = Object.keys(COLORES);
-    for (const tipo of tipos) {
+    for (const tipo of Object.keys(COLORES)) {
         try {
-            const url = `${FIREBASE_DELITOS}/${tipo}.json`;
-            const respuesta = await fetch(url);
-            const datos = await respuesta.json();
-            if (datos) {
-                todosLosDelitos[tipo] = Object.values(datos).filter(r => r !== null);
-                console.log(`✅ ${tipo}: ${todosLosDelitos[tipo].length} registros`);
-            } else {
-                todosLosDelitos[tipo] = [];
-            }
-        } catch (error) {
-            console.error(`Error cargando ${tipo}:`, error);
+            const datos = await (await fetch(`${FIREBASE_DELITOS}/${tipo}.json`)).json();
+            todosLosDelitos[tipo] = datos ? Object.values(datos).filter(r => r !== null) : [];
+            console.log(`✅ ${tipo}: ${todosLosDelitos[tipo].length} registros`);
+        } catch (e) {
             todosLosDelitos[tipo] = [];
         }
     }
@@ -186,13 +173,10 @@ function aplicarFiltros() {
     if (capaActual) { mapa.removeLayer(capaActual); capaActual = null; }
     if (capaCalor)  { mapa.removeLayer(capaCalor);  capaCalor  = null; }
 
-    const tiposAMostrar = tipoSeleccionado === 'todos'
-        ? Object.keys(COLORES)
-        : [tipoSeleccionado];
-
+    const tiposAMostrar = tipoSeleccionado === 'todos' ? Object.keys(COLORES) : [tipoSeleccionado];
     const puntosCalor = [];
     capaActual = L.layerGroup();
-    registrosFiltrados = []; // Limpiar registros anteriores
+    registrosFiltrados = [];
     let totalPuntos = 0;
 
     for (const tipo of tiposAMostrar) {
@@ -203,30 +187,25 @@ function aplicarFiltros() {
 
         for (const registro of registros) {
             if (!registro) continue;
-
             if (articuloFiltro) {
                 const conducta = String(registro.DESCRIPCION_CONDUCTA || '').toUpperCase();
                 if (!conducta.includes(articuloFiltro)) continue;
             }
-
             if (estacionSeleccionada) {
                 const estacion = String(registro['JURIS_ESTACIÓN _ ÁREA'] || '').toUpperCase();
                 if (!estacion.includes(estacionSeleccionada)) continue;
             }
-
             if (dInicio || dFin) {
-                const fechaRegistro = aFecha(registro.FECHA_HECHO);
-                if (!fechaRegistro) continue;
-                if (dInicio && fechaRegistro < dInicio) continue;
-                if (dFin    && fechaRegistro > dFin)    continue;
+                const fechaR = aFecha(registro.FECHA_HECHO);
+                if (!fechaR) continue;
+                if (dInicio && fechaR < dInicio) continue;
+                if (dFin    && fechaR > dFin)    continue;
             }
-
             const lat = aNumero(registro.LATITUD || registro.LATITUD_HECHO);
             const lon = aNumero(registro.LONGITUD || registro.LONGITUD_HECHO);
             if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) continue;
 
-            // Guardar registro para exportar y estadísticas
-            registrosFiltrados.push({ ...registro, _tipo: nombre });
+            registrosFiltrados.push({ ...registro, _tipo: nombre, _color: color });
 
             if (modoCalor) {
                 puntosCalor.push([lat, lon, 1]);
@@ -258,29 +237,26 @@ function aplicarFiltros() {
 // POPUP
 // ==========================================================================
 function construirPopup(registro, nombreDelito, color) {
-    const columnasImportantes = [
-        'FECHA_HECHO', 'HORA_HECHO', 'DIA_SEMANA', 'MES',
-        'DESCRIPCION_CONDUCTA', 'MODALIDAD', 'ARMAS_MEDIOS',
-        'BARRIOS_HECHO', 'COMUNAS_ZONAS_DESCRIPCION', 'DIRECCION_HECHO',
-        'JURIS_CAI', 'JURIS_ESTACIÓN _ ÁREA', 'ZONA',
-        'GENERO', 'EDAD', 'ESTADO_CIVIL_PERSONA'
+    const columnas = [
+        'FECHA_HECHO','HORA_HECHO','DIA_SEMANA','MES',
+        'DESCRIPCION_CONDUCTA','MODALIDAD','ARMAS_MEDIOS',
+        'BARRIOS_HECHO','COMUNAS_ZONAS_DESCRIPCION','DIRECCION_HECHO',
+        'JURIS_CAI','JURIS_ESTACIÓN _ ÁREA','ZONA',
+        'GENERO','EDAD','ESTADO_CIVIL_PERSONA'
     ];
     let filas = '';
-    for (const clave of columnasImportantes) {
+    for (const clave of columnas) {
         let valor = registro[clave];
         if (!valor || valor === 'null' || valor === 'None') continue;
         if (clave === 'FECHA_HECHO') valor = formatearFecha(valor);
         if (clave === 'HORA_HECHO')  valor = formatearHora(valor);
-        const etiqueta = clave.replace(/_/g, ' ').replace(' HECHO', '');
         filas += `<tr>
-            <td style="font-weight:600;color:#94a3b8;padding:3px 8px 3px 0;font-size:0.72rem;white-space:nowrap;">${etiqueta}</td>
+            <td style="font-weight:600;color:#94a3b8;padding:3px 8px 3px 0;font-size:0.72rem;white-space:nowrap;">${clave.replace(/_/g,' ').replace(' HECHO','')}</td>
             <td style="color:#e2e8f0;padding:3px 0;font-size:0.72rem;">${valor}</td>
         </tr>`;
     }
     return `<div style="background:#1e293b;color:white;border-radius:8px;min-width:240px;">
-        <div style="background:${color};padding:8px 12px;border-radius:8px 8px 0 0;font-weight:bold;font-size:0.85rem;">
-            🚨 ${nombreDelito}
-        </div>
+        <div style="background:${color};padding:8px 12px;border-radius:8px 8px 0 0;font-weight:bold;font-size:0.85rem;">🚨 ${nombreDelito}</div>
         <div style="padding:10px 12px;max-height:280px;overflow-y:auto;">
             <table style="border-collapse:collapse;width:100%;">${filas}</table>
         </div>
@@ -288,7 +264,7 @@ function construirPopup(registro, nombreDelito, color) {
 }
 
 // ==========================================================================
-// PANEL DE ESTADÍSTICAS
+// PANEL DE ESTADÍSTICAS CON GRÁFICAS
 // ==========================================================================
 function abrirEstadisticas() {
     if (registrosFiltrados.length === 0) {
@@ -296,165 +272,205 @@ function abrirEstadisticas() {
         return;
     }
 
-    // Contar por modalidad
+    // Calcular datos para gráficas
     const porModalidad = {};
-    const porDia = {};
-    const porHora = {};
+    const porTipo      = {};
+    const porMes       = {};
 
     for (const r of registrosFiltrados) {
-        const mod  = r.MODALIDAD   || 'SIN DATO';
-        const dia  = r.DIA_SEMANA  || 'SIN DATO';
-        const hora = formatearHora(r.HORA_HECHO) || 'SIN DATO';
-        const horaBloque = hora !== 'SIN DATO'
-            ? `${hora.split(':')[0]}:00` : 'SIN DATO';
+        const mod  = r.MODALIDAD  || 'SIN DATO';
+        const tipo = r._tipo      || 'SIN DATO';
+        const mes  = String(r.MES || '').toLowerCase().trim() || 'sin dato';
 
-        porModalidad[mod]        = (porModalidad[mod]        || 0) + 1;
-        porDia[dia]              = (porDia[dia]              || 0) + 1;
-        porHora[horaBloque]      = (porHora[horaBloque]      || 0) + 1;
+        porModalidad[mod]  = (porModalidad[mod]  || 0) + 1;
+        porTipo[tipo]      = (porTipo[tipo]       || 0) + 1;
+        porMes[mes]        = (porMes[mes]         || 0) + 1;
     }
 
-    const tablaModalidad = Object.entries(porModalidad)
-        .sort((a, b) => b[1] - a[1])
-        .map(([k, v]) => `<tr>
-            <td style="padding:5px 10px;border-bottom:1px solid #334155;">${k}</td>
-            <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:right;font-weight:bold;color:#38bdf8;">${v}</td>
-        </tr>`).join('');
+    // Ordenar modalidad por cantidad
+    const modalidadOrdenada = Object.entries(porModalidad).sort((a,b) => b[1]-a[1]).slice(0,10);
+    
+    // Ordenar meses cronológicamente
+    const mesesOrdenados = ORDEN_MESES
+        .filter(m => porMes[m])
+        .map(m => [m, porMes[m]]);
 
-    const tablaDia = Object.entries(porDia)
-        .sort((a, b) => b[1] - a[1])
-        .map(([k, v]) => `<tr>
-            <td style="padding:5px 10px;border-bottom:1px solid #334155;">${k}</td>
-            <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:right;font-weight:bold;color:#38bdf8;">${v}</td>
-        </tr>`).join('');
-
-    const tablaHora = Object.entries(porHora)
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([k, v]) => `<tr>
-            <td style="padding:5px 10px;border-bottom:1px solid #334155;">${k}</td>
-            <td style="padding:5px 10px;border-bottom:1px solid #334155;text-align:right;font-weight:bold;color:#38bdf8;">${v}</td>
-        </tr>`).join('');
-
-    // Crear ventana flotante
+    // Crear o limpiar panel
     let panel = document.getElementById('panel-estadisticas');
     if (panel) panel.remove();
 
     panel = document.createElement('div');
     panel.id = 'panel-estadisticas';
     panel.style.cssText = `
-        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        background: #1e293b; color: white; border-radius: 12px;
-        width: 520px; max-width: 95vw; max-height: 85vh;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-        border: 1px solid #334155; z-index: 99999;
-        display: flex; flex-direction: column; overflow: hidden;
+        position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+        background:#1e293b; color:white; border-radius:12px;
+        width:680px; max-width:96vw; max-height:90vh;
+        box-shadow:0 20px 60px rgba(0,0,0,0.7);
+        border:1px solid #334155; z-index:99999;
+        display:flex; flex-direction:column; overflow:hidden;
     `;
 
     panel.innerHTML = `
-        <!-- ENCABEZADO -->
-        <div style="background:#0f172a;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #38bdf8;">
+        <!-- HEADER -->
+        <div style="background:#0f172a;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #38bdf8;flex-shrink:0;">
             <div>
                 <h2 style="margin:0;font-size:1.1rem;color:#38bdf8;">📊 Panel de Estadísticas</h2>
                 <small style="color:#94a3b8;">${registrosFiltrados.length.toLocaleString()} registros filtrados</small>
             </div>
             <button onclick="document.getElementById('panel-estadisticas').remove()"
-                style="background:#334155;border:none;color:white;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:1rem;">✕</button>
+                style="background:#334155;border:none;color:white;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:1rem;">✕</button>
         </div>
 
-        <!-- CONTENIDO SCROLLABLE -->
-        <div style="overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:20px;">
+        <!-- BOTONES EXPORTAR -->
+        <div style="padding:12px 20px;display:flex;gap:10px;flex-shrink:0;border-bottom:1px solid #334155;">
+            <button onclick="exportarExcel()"
+                style="flex:1;background:#10b981;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;">
+                📥 Exportar Excel
+            </button>
+            <button onclick="exportarPDF()"
+                style="flex:1;background:#ef4444;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;">
+                📄 Exportar PDF
+            </button>
+        </div>
 
-            <!-- BOTONES EXPORTAR -->
-            <div style="display:flex;gap:10px;">
-                <button onclick="exportarExcel()"
-                    style="flex:1;background:#10b981;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:0.9rem;">
-                    📥 Exportar Excel
-                </button>
-                <button onclick="exportarPDF()"
-                    style="flex:1;background:#ef4444;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:0.9rem;">
-                    📄 Exportar PDF
-                </button>
+        <!-- CONTENIDO CON GRÁFICAS -->
+        <div style="overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:24px;">
+
+            <!-- TARJETAS RESUMEN -->
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+                <div style="background:#0f172a;padding:14px;border-radius:8px;text-align:center;border-left:4px solid #38bdf8;">
+                    <div style="font-size:1.8rem;font-weight:bold;color:#38bdf8;">${registrosFiltrados.length.toLocaleString()}</div>
+                    <div style="font-size:0.75rem;color:#94a3b8;">Total Registros</div>
+                </div>
+                <div style="background:#0f172a;padding:14px;border-radius:8px;text-align:center;border-left:4px solid #10b981;">
+                    <div style="font-size:1.8rem;font-weight:bold;color:#10b981;">${Object.keys(porModalidad).length}</div>
+                    <div style="font-size:0.75rem;color:#94a3b8;">Modalidades</div>
+                </div>
+                <div style="background:#0f172a;padding:14px;border-radius:8px;text-align:center;border-left:4px solid #f97316;">
+                    <div style="font-size:1.8rem;font-weight:bold;color:#f97316;">${Object.keys(porTipo).length}</div>
+                    <div style="font-size:0.75rem;color:#94a3b8;">Tipos de Delito</div>
+                </div>
             </div>
 
-            <!-- POR MODALIDAD -->
-            <div>
-                <h3 style="margin:0 0 10px;font-size:0.95rem;color:#cbd5e1;border-bottom:1px solid #334155;padding-bottom:6px;">
-                    🔹 Por Modalidad
-                </h3>
-                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-                    ${tablaModalidad || '<tr><td style="padding:5px;color:#94a3b8;">Sin datos</td></tr>'}
-                </table>
+            <!-- GRÁFICA 1: BARRAS POR MODALIDAD -->
+            <div style="background:#0f172a;padding:16px;border-radius:8px;">
+                <h3 style="margin:0 0 12px;font-size:0.9rem;color:#cbd5e1;">🔹 Top 10 Modalidades</h3>
+                <canvas id="graficaModalidad" height="200"></canvas>
             </div>
 
-            <!-- POR DÍA -->
-            <div>
-                <h3 style="margin:0 0 10px;font-size:0.95rem;color:#cbd5e1;border-bottom:1px solid #334155;padding-bottom:6px;">
-                    📅 Por Día de Semana
-                </h3>
-                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-                    ${tablaDia || '<tr><td style="padding:5px;color:#94a3b8;">Sin datos</td></tr>'}
-                </table>
+            <!-- GRÁFICA 2: TORTA POR TIPO DE DELITO -->
+            <div style="background:#0f172a;padding:16px;border-radius:8px;">
+                <h3 style="margin:0 0 12px;font-size:0.9rem;color:#cbd5e1;">🍕 Por Tipo de Delito</h3>
+                <canvas id="graficaTipo" height="220"></canvas>
             </div>
 
-            <!-- POR HORA -->
-            <div>
-                <h3 style="margin:0 0 10px;font-size:0.95rem;color:#cbd5e1;border-bottom:1px solid #334155;padding-bottom:6px;">
-                    🕐 Por Hora del Día
-                </h3>
-                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-                    ${tablaHora || '<tr><td style="padding:5px;color:#94a3b8;">Sin datos</td></tr>'}
-                </table>
+            <!-- GRÁFICA 3: LÍNEA DE TIEMPO POR MES -->
+            <div style="background:#0f172a;padding:16px;border-radius:8px;">
+                <h3 style="margin:0 0 12px;font-size:0.9rem;color:#cbd5e1;">📈 Tendencia por Mes</h3>
+                <canvas id="graficaMes" height="180"></canvas>
             </div>
 
         </div>
     `;
 
     document.body.appendChild(panel);
+
+    // Destruir gráficas anteriores si existen
+    if (graficaModalidad) graficaModalidad.destroy();
+    if (graficaTipo)      graficaTipo.destroy();
+    if (graficaMes)       graficaMes.destroy();
+
+    // Config común de Chart.js
+    const opcionesBase = {
+        plugins: { legend: { labels: { color: '#cbd5e1', font: { size: 11 } } } },
+        scales: {
+            x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1e293b' } },
+            y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#334155' } }
+        }
+    };
+
+    // GRÁFICA 1 — Barras por modalidad
+    graficaModalidad = new Chart(document.getElementById('graficaModalidad'), {
+        type: 'bar',
+        data: {
+            labels: modalidadOrdenada.map(([k]) => k.length > 20 ? k.slice(0,20)+'…' : k),
+            datasets: [{
+                label: 'Casos',
+                data: modalidadOrdenada.map(([,v]) => v),
+                backgroundColor: '#38bdf8',
+                borderRadius: 4,
+            }]
+        },
+        options: { ...opcionesBase, plugins: { legend: { display: false } }, indexAxis: 'y' }
+    });
+
+    // GRÁFICA 2 — Torta por tipo de delito
+    const tiposEntradas = Object.entries(porTipo);
+    graficaTipo = new Chart(document.getElementById('graficaTipo'), {
+        type: 'doughnut',
+        data: {
+            labels: tiposEntradas.map(([k]) => k),
+            datasets: [{
+                data: tiposEntradas.map(([,v]) => v),
+                backgroundColor: tiposEntradas.map(([k]) => COLORES[Object.keys(NOMBRES).find(n => NOMBRES[n]===k)] || '#94a3b8'),
+                borderWidth: 2,
+                borderColor: '#0f172a'
+            }]
+        },
+        options: {
+            plugins: { legend: { position: 'right', labels: { color: '#cbd5e1', font: { size: 10 }, boxWidth: 12 } } }
+        }
+    });
+
+    // GRÁFICA 3 — Línea de tiempo por mes
+    graficaMes = new Chart(document.getElementById('graficaMes'), {
+        type: 'line',
+        data: {
+            labels: mesesOrdenados.map(([m]) => m.toUpperCase()),
+            datasets: [{
+                label: 'Casos por mes',
+                data: mesesOrdenados.map(([,v]) => v),
+                borderColor: '#38bdf8',
+                backgroundColor: 'rgba(56,189,248,0.1)',
+                pointBackgroundColor: '#38bdf8',
+                pointRadius: 5,
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: opcionesBase
+    });
 }
 
 // ==========================================================================
 // EXPORTAR EXCEL
 // ==========================================================================
 function exportarExcel() {
-    if (registrosFiltrados.length === 0) {
-        mostrarNotificacion("⚠️ No hay datos para exportar");
-        return;
-    }
-
-    // Construir CSV con todos los campos
-    const columnas = Object.keys(registrosFiltrados[0]).filter(c => c !== '_tipo');
+    if (registrosFiltrados.length === 0) { mostrarNotificacion("⚠️ No hay datos para exportar"); return; }
+    const columnas = Object.keys(registrosFiltrados[0]).filter(c => !c.startsWith('_'));
     let csv = columnas.join(';') + '\n';
-
     for (const r of registrosFiltrados) {
         const fila = columnas.map(col => {
             let val = r[col] ?? '';
             if (col === 'FECHA_HECHO') val = formatearFecha(val);
             if (col === 'HORA_HECHO')  val = formatearHora(val);
-            return `"${String(val).replace(/"/g, '""')}"`;
+            return `"${String(val).replace(/"/g,'""')}"`;
         });
         csv += fila.join(';') + '\n';
     }
-
-    // Descargar archivo
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `SIETE_export_${new Date().toISOString().slice(0,10)}.csv`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `SIETE_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
-    mostrarNotificacion("✅ Excel descargado correctamente");
+    mostrarNotificacion("✅ Excel descargado");
 }
 
 // ==========================================================================
 // EXPORTAR PDF
 // ==========================================================================
 function exportarPDF() {
-    if (registrosFiltrados.length === 0) {
-        mostrarNotificacion("⚠️ No hay datos para exportar");
-        return;
-    }
-
-    // Contar estadísticas
+    if (registrosFiltrados.length === 0) { mostrarNotificacion("⚠️ No hay datos para exportar"); return; }
     const porModalidad = {};
     const porDia = {};
     for (const r of registrosFiltrados) {
@@ -463,54 +479,41 @@ function exportarPDF() {
         porModalidad[mod] = (porModalidad[mod] || 0) + 1;
         porDia[dia]       = (porDia[dia]       || 0) + 1;
     }
+    const filasM = Object.entries(porModalidad).sort((a,b)=>b[1]-a[1])
+        .map(([k,v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
+    const filasD = Object.entries(porDia).sort((a,b)=>b[1]-a[1])
+        .map(([k,v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
 
-    const filasModalidad = Object.entries(porModalidad)
-        .sort((a, b) => b[1] - a[1])
-        .map(([k, v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
-
-    const filasHora = Object.entries(porDia)
-        .sort((a, b) => b[1] - a[1])
-        .map(([k, v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
-
-    const ventana = window.open('', '_blank');
-    ventana.document.write(`
-        <!DOCTYPE html><html><head>
-        <meta charset="UTF-8">
-        <title>SIETE - Reporte</title>
-        <style>
-            body { font-family: Arial, sans-serif; padding: 30px; color: #1e293b; }
-            h1 { color: #0f172a; border-bottom: 3px solid #38bdf8; padding-bottom: 10px; }
-            h2 { color: #334155; margin-top: 25px; font-size: 1rem; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
-            th { background: #1e293b; color: white; padding: 8px 12px; text-align: left; }
-            td { padding: 6px 12px; border-bottom: 1px solid #e2e8f0; }
-            tr:nth-child(even) { background: #f8fafc; }
-            .resumen { display: flex; gap: 20px; margin: 20px 0; }
-            .tarjeta { background: #0f172a; color: white; padding: 15px 20px; border-radius: 8px; text-align: center; flex: 1; }
-            .tarjeta .num { font-size: 2rem; font-weight: bold; color: #38bdf8; }
-            .pie { margin-top: 30px; font-size: 0.75rem; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
-        </style>
-        </head><body>
-        <h1>🛡️ SIETE — Reporte de Delitos</h1>
-        <p>Fecha de generación: ${new Date().toLocaleDateString('es-CO')}</p>
-
-        <div class="resumen">
-            <div class="tarjeta"><div class="num">${registrosFiltrados.length}</div>Total Registros</div>
-            <div class="tarjeta"><div class="num">${Object.keys(porModalidad).length}</div>Modalidades</div>
-            <div class="tarjeta"><div class="num">${Object.keys(porDia).length}</div>Días con Casos</div>
-        </div>
-
-        <h2>Por Modalidad</h2>
-        <table><tr><th>Modalidad</th><th style="text-align:right">Cantidad</th></tr>${filasModalidad}</table>
-
-        <h2>Por Día de Semana</h2>
-        <table><tr><th>Día</th><th style="text-align:right">Cantidad</th></tr>${filasHora}</table>
-
-        <div class="pie">Sistema de Información Estadístico Territorial — SIETE</div>
-        <script>window.onload = () => window.print();<\/script>
-        </body></html>
-    `);
-    ventana.document.close();
+    const w = window.open('', '_blank');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SIETE - Reporte</title>
+    <style>
+        body{font-family:Arial,sans-serif;padding:30px;color:#1e293b;}
+        h1{color:#0f172a;border-bottom:3px solid #38bdf8;padding-bottom:10px;}
+        h2{color:#334155;margin-top:25px;font-size:1rem;}
+        table{width:100%;border-collapse:collapse;margin-top:10px;font-size:0.85rem;}
+        th{background:#1e293b;color:white;padding:8px 12px;text-align:left;}
+        td{padding:6px 12px;border-bottom:1px solid #e2e8f0;}
+        tr:nth-child(even){background:#f8fafc;}
+        .cards{display:flex;gap:15px;margin:20px 0;}
+        .card{background:#0f172a;color:white;padding:15px;border-radius:8px;text-align:center;flex:1;}
+        .num{font-size:2rem;font-weight:bold;color:#38bdf8;}
+        .pie{margin-top:30px;font-size:0.75rem;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:10px;}
+    </style></head><body>
+    <h1>🛡️ SIETE — Reporte de Delitos</h1>
+    <p>Generado: ${new Date().toLocaleDateString('es-CO')} ${new Date().toLocaleTimeString('es-CO')}</p>
+    <div class="cards">
+        <div class="card"><div class="num">${registrosFiltrados.length}</div>Total</div>
+        <div class="card"><div class="num">${Object.keys(porModalidad).length}</div>Modalidades</div>
+        <div class="card"><div class="num">${Object.keys(porDia).length}</div>Días con casos</div>
+    </div>
+    <h2>Por Modalidad</h2>
+    <table><tr><th>Modalidad</th><th style="text-align:right">Casos</th></tr>${filasM}</table>
+    <h2>Por Día de Semana</h2>
+    <table><tr><th>Día</th><th style="text-align:right">Casos</th></tr>${filasD}</table>
+    <div class="pie">Sistema de Información Estadístico Territorial — SIETE</div>
+    <script>window.onload=()=>window.print();<\/script>
+    </body></html>`);
+    w.document.close();
 }
 
 // ==========================================================================
