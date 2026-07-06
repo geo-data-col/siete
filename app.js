@@ -56,7 +56,8 @@ const FILTRO_CONDUCTA = {
 };
 
 const ORDEN_MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-const ORDEN_DIAS  = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+const ORDEN_DIAS = ['Lunes','Martes','Mi\u00e9rcoles','Jueves','Viernes','S\u00e1bado','Domingo'];
+
 
 // ==========================================================================
 // FORMATO
