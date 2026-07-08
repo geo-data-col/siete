@@ -719,3 +719,255 @@ function abrirPredicciones() {
     document.body.appendChild(panel);
     mostrarNotificacion("✅ Predicciones calculadas");
 }
+
+// ==========================================================================
+// CONSULTOR DE RIESGO POR FECHA Y ESTACIÓN
+// El usuario ingresa fecha + estación y el sistema muestra nivel de alerta
+// basado en el historial de ese día de semana y mes
+// ==========================================================================
+function abrirConsultorRiesgo() {
+    if (Object.keys(todosLosDelitos).length === 0) {
+        mostrarNotificacion("⚠️ Espera a que carguen los datos primero");
+        return;
+    }
+
+    let panel = document.getElementById('panel-consultor');
+    if (panel) panel.remove();
+
+    panel = document.createElement('div');
+    panel.id = 'panel-consultor';
+    panel.style.cssText = `
+        position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+        background:#1e293b; color:white; border-radius:12px;
+        width:600px; max-width:96vw; max-height:90vh;
+        box-shadow:0 20px 60px rgba(0,0,0,0.7);
+        border:1px solid #334155; z-index:99999;
+        display:flex; flex-direction:column; overflow:hidden;
+    `;
+
+    // Lista de estaciones para el selector
+    const estaciones = [
+        "ESTACION ARANJUEZ","ESTACION BARBOSA","ESTACION BELEN","ESTACION BELLO",
+        "ESTACION BUENOS AIRES","ESTACION CALDAS","ESTACION CANDELARIA","ESTACION CASTILLA",
+        "ESTACION COPACABANA","ESTACION DOCE DE OCTUBRE","ESTACION ENVIGADO","ESTACION GIRARDOTA",
+        "ESTACION ITAGUI","ESTACION LA ESTRELLA","ESTACION LAURELES","ESTACION MANRIQUE",
+        "ESTACION POBLADO","ESTACION POPULAR","ESTACION SABANETA","ESTACION SAN ANTONIO DE PRADO",
+        "ESTACION SAN JAVIER","ESTACION SANTA CRUZ","ESTACION VILLA HERMOSA"
+    ];
+
+    const opcionesEstacion = estaciones.map(e =>
+        `<option value="${e}">${e.replace('ESTACION ','Estación ')}</option>`
+    ).join('');
+
+    panel.innerHTML = `
+        <!-- HEADER -->
+        <div style="background:#0f172a;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #6366f1;flex-shrink:0;">
+            <div>
+                <h2 style="margin:0;font-size:1.1rem;color:#6366f1;">🎯 Consultor de Riesgo por Fecha</h2>
+                <small style="color:#94a3b8;">Basado en historial 2022 — orientativo para patrullaje</small>
+            </div>
+            <button onclick="document.getElementById('panel-consultor').remove()"
+                style="background:#334155;border:none;color:white;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:1rem;">✕</button>
+        </div>
+
+        <!-- FORMULARIO -->
+        <div style="padding:20px;display:flex;flex-direction:column;gap:14px;background:#0f172a;flex-shrink:0;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div>
+                    <label style="color:#94a3b8;font-size:0.8rem;display:block;margin-bottom:6px;">📅 Fecha a consultar</label>
+                    <input type="date" id="consultor-fecha"
+                        style="width:100%;padding:10px;border-radius:6px;border:1px solid #475569;background:#1e293b;color:white;font-size:0.9rem;">
+                </div>
+                <div>
+                    <label style="color:#94a3b8;font-size:0.8rem;display:block;margin-bottom:6px;">🚔 Estación</label>
+                    <select id="consultor-estacion"
+                        style="width:100%;padding:10px;border-radius:6px;border:1px solid #475569;background:#1e293b;color:white;font-size:0.85rem;">
+                        ${opcionesEstacion}
+                    </select>
+                </div>
+            </div>
+            <button onclick="calcularRiesgo()"
+                style="background:#6366f1;color:white;border:none;padding:12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:1rem;">
+                🔍 Calcular Nivel de Riesgo
+            </button>
+        </div>
+
+        <!-- RESULTADO -->
+        <div id="resultado-consultor" style="overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:14px;">
+            <p style="color:#475569;text-align:center;margin-top:20px;">
+                Selecciona una fecha y estación para ver el análisis de riesgo.
+            </p>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Poner fecha de hoy por defecto
+    const hoy = new Date().toISOString().slice(0,10);
+    document.getElementById('consultor-fecha').value = hoy;
+}
+
+function calcularRiesgo() {
+    const fechaStr    = document.getElementById('consultor-fecha').value;
+    const estacionVal = document.getElementById('consultor-estacion').value;
+
+    if (!fechaStr) {
+        mostrarNotificacion("⚠️ Selecciona una fecha");
+        return;
+    }
+
+    const fecha   = new Date(fechaStr + 'T12:00:00');
+    const diasES  = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const mesesES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    const diaConsulta = diasES[fecha.getDay()];
+    const mesConsulta = mesesES[fecha.getMonth()];
+    const fechaFormateada = fecha.toLocaleDateString('es-CO', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+    // Recopilar registros de esa estación
+    const registrosEstacion = [];
+    for (const [tipo, registros] of Object.entries(todosLosDelitos)) {
+        const artFiltro = FILTRO_CONDUCTA[tipo] || null;
+        for (const r of registros) {
+            if (!r) continue;
+            if (artFiltro) {
+                const conducta = String(r.DESCRIPCION_CONDUCTA || '').toUpperCase();
+                if (!conducta.includes(artFiltro)) continue;
+            }
+            const est = String(r['JURIS_ESTACIÓN _ ÁREA'] || '').toUpperCase();
+            if (est.includes(estacionVal.replace('ESTACION ',''))) {
+                registrosEstacion.push({ ...r, _tipo: NOMBRES[tipo] || tipo });
+            }
+        }
+    }
+
+    if (registrosEstacion.length === 0) {
+        document.getElementById('resultado-consultor').innerHTML =
+            '<p style="color:#ef4444;text-align:center;">No hay datos históricos para esta estación.</p>';
+        return;
+    }
+
+    // Calcular riesgo por tipo de delito para ese día y mes
+    const analisisPorTipo = {};
+    const totalPorTipo    = {};
+
+    for (const r of registrosEstacion) {
+        const tipo = r._tipo || 'SIN DATO';
+        if (!totalPorTipo[tipo]) totalPorTipo[tipo] = { total: 0, porDia: {}, porMes: {} };
+        totalPorTipo[tipo].total++;
+
+        const dia = String(r.DIA_SEMANA || '').trim();
+        const mes = String(r.MES || '').toLowerCase().trim();
+        if (dia) totalPorTipo[tipo].porDia[dia] = (totalPorTipo[tipo].porDia[dia] || 0) + 1;
+        if (mes) totalPorTipo[tipo].porMes[mes] = (totalPorTipo[tipo].porMes[mes] || 0) + 1;
+    }
+
+    // Para cada tipo calcular score de riesgo para ese día y mes
+    for (const [tipo, datos] of Object.entries(totalPorTipo)) {
+        const casosDia = datos.porDia[diaConsulta] || 0;
+        const casosMes = datos.porMes[mesConsulta]  || 0;
+        const promDia  = datos.total / 7;
+        const promMes  = datos.total / 12;
+
+        // Score: qué tan por encima del promedio está ese día y mes
+        const scoreDia = promDia > 0 ? casosDia / promDia : 0;
+        const scoreMes = promMes > 0 ? casosMes / promMes : 0;
+        const scoreTotal = (scoreDia * 0.6) + (scoreMes * 0.4); // día pesa más
+
+        let nivel = 'BAJO';
+        let color = '#10b981';
+        let icono = '🟢';
+        let recomendacion = 'Riesgo bajo. Patrullaje normal.';
+
+        if (scoreTotal >= 1.3) {
+            nivel = 'ALTO'; color = '#ef4444'; icono = '🔴';
+            recomendacion = 'Riesgo elevado. Reforzar patrullaje y vigilancia en esta zona.';
+        } else if (scoreTotal >= 0.9) {
+            nivel = 'MEDIO'; color = '#eab308'; icono = '🟡';
+            recomendacion = 'Riesgo moderado. Mantener atención especial en horarios pico.';
+        }
+
+        analisisPorTipo[tipo] = {
+            nivel, color, icono, recomendacion,
+            casosDia, casosMes, total: datos.total, scoreTotal,
+            mejorHora: Object.entries(
+                registrosEstacion
+                    .filter(r => r._tipo === tipo)
+                    .reduce((acc, r) => {
+                        const h = Number(r.HORA_HECHO);
+                        let bloque = 'Sin dato';
+                        if (!isNaN(h) && h >= 0 && h < 1) {
+                            const hr = Math.floor(h * 24);
+                            if (hr < 6)       bloque = '🌙 Madrugada (00-06h)';
+                            else if (hr < 12) bloque = '🌅 Mañana (06-12h)';
+                            else if (hr < 18) bloque = '☀️ Tarde (12-18h)';
+                            else              bloque = '🌆 Noche (18-24h)';
+                        }
+                        acc[bloque] = (acc[bloque] || 0) + 1;
+                        return acc;
+                    }, {})
+            ).sort((a,b) => b[1]-a[1])[0]?.[0] || 'Sin dato'
+        };
+    }
+
+    // Ordenar por score de riesgo
+    const ordenado = Object.entries(analisisPorTipo).sort((a,b) => b[1].scoreTotal - a[1].scoreTotal);
+
+    // Nivel general de la estación ese día
+    const nivelGeneral = ordenado[0]?.[1]?.nivel || 'BAJO';
+    const colorGeneral = ordenado[0]?.[1]?.color || '#10b981';
+    const iconoGeneral = ordenado[0]?.[1]?.icono || '🟢';
+
+    const tarjetasHTML = ordenado.map(([tipo, datos]) => `
+        <div style="background:#0f172a;border-radius:8px;padding:14px;border-left:4px solid ${datos.color};">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-weight:bold;font-size:0.9rem;">${datos.icono} ${tipo}</span>
+                <span style="background:${datos.color}22;color:${datos.color};padding:3px 10px;border-radius:20px;font-size:0.78rem;font-weight:bold;">
+                    ${datos.nivel}
+                </span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+                <div style="text-align:center;background:#1e293b;padding:8px;border-radius:6px;">
+                    <div style="font-size:1.3rem;font-weight:bold;color:#38bdf8;">${datos.casosDia}</div>
+                    <div style="font-size:0.7rem;color:#94a3b8;">Casos en ${diaConsulta}s históricos</div>
+                </div>
+                <div style="text-align:center;background:#1e293b;padding:8px;border-radius:6px;">
+                    <div style="font-size:1.3rem;font-weight:bold;color:#38bdf8;">${datos.casosMes}</div>
+                    <div style="font-size:0.7rem;color:#94a3b8;">Casos en ${mesConsulta.toUpperCase()} histórico</div>
+                </div>
+                <div style="text-align:center;background:#1e293b;padding:8px;border-radius:6px;">
+                    <div style="font-size:1.3rem;font-weight:bold;color:#38bdf8;">${datos.total}</div>
+                    <div style="font-size:0.7rem;color:#94a3b8;">Total histórico</div>
+                </div>
+            </div>
+            <div style="font-size:0.78rem;color:#94a3b8;">
+                ⏰ Hora de mayor riesgo histórico: <span style="color:#f97316;font-weight:bold;">${datos.mejorHora}</span>
+            </div>
+            <div style="font-size:0.78rem;color:#94a3b8;margin-top:4px;">
+                💡 ${datos.recomendacion}
+            </div>
+        </div>
+    `).join('');
+
+    document.getElementById('resultado-consultor').innerHTML = `
+        <!-- ENCABEZADO RESULTADO -->
+        <div style="background:#0f172a;border-radius:8px;padding:16px;border:2px solid ${colorGeneral};text-align:center;">
+            <div style="font-size:2rem;margin-bottom:4px;">${iconoGeneral}</div>
+            <div style="font-size:1.1rem;font-weight:bold;color:${colorGeneral};">ALERTA ${nivelGeneral}</div>
+            <div style="font-size:0.85rem;color:#cbd5e1;margin-top:4px;text-transform:capitalize;">${fechaFormateada}</div>
+            <div style="font-size:0.8rem;color:#94a3b8;margin-top:2px;">${estacionVal.replace('ESTACION','Estación')}</div>
+        </div>
+
+        <!-- TARJETAS POR DELITO -->
+        <div style="display:flex;flex-direction:column;gap:10px;">
+            ${tarjetasHTML}
+        </div>
+
+        <!-- NOTA -->
+        <div style="background:#0f172a;border-radius:8px;padding:12px;border-left:4px solid #475569;">
+            <p style="margin:0;font-size:0.75rem;color:#64748b;">
+                ⚠️ Este análisis es orientativo y se basa en patrones históricos de 2022. 
+                No garantiza la ocurrencia de delitos. Úselo como apoyo para decisiones de patrullaje preventivo.
+            </p>
+        </div>
+    `;
+}
