@@ -971,3 +971,4 @@ function calcularRiesgo() {
         </div>
     `;
 }
+
