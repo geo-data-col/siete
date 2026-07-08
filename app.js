@@ -56,8 +56,7 @@ const FILTRO_CONDUCTA = {
 };
 
 const ORDEN_MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-const ORDEN_DIAS = ['Lunes','Martes','Mi\u00e9rcoles','Jueves','Viernes','S\u00e1bado','Domingo'];
-
+const ORDEN_DIAS  = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
 
 // ==========================================================================
 // FORMATO
@@ -553,4 +552,170 @@ function limpiarFiltros() {
     document.getElementById('filtro-estacion').value = '';
     document.getElementById('filtro-modo').value = 'puntos';
     aplicarFiltros();
+}
+
+// ==========================================================================
+// MÓDULO DE PREDICCIONES
+// Analiza el historial de todos los delitos y predice por estación
+// ==========================================================================
+function abrirPredicciones() {
+    if (Object.keys(todosLosDelitos).length === 0) {
+        mostrarNotificacion("⚠️ Espera a que carguen los datos primero");
+        return;
+    }
+
+    mostrarNotificacion("🔄 Calculando predicciones...");
+
+    // Recopilar TODOS los registros de todas las hojas
+    const todos = [];
+    for (const [tipo, registros] of Object.entries(todosLosDelitos)) {
+        const artFiltro = FILTRO_CONDUCTA[tipo] || null;
+        for (const r of registros) {
+            if (!r) continue;
+            if (artFiltro) {
+                const conducta = String(r.DESCRIPCION_CONDUCTA || '').toUpperCase();
+                if (!conducta.includes(artFiltro)) continue;
+            }
+            todos.push({ ...r, _tipo: NOMBRES[tipo] || tipo });
+        }
+    }
+
+    // Agrupar por estación
+    const porEstacion = {};
+    for (const r of todos) {
+        const estacion = String(r['JURIS_ESTACIÓN _ ÁREA'] || 'SIN ESTACIÓN').trim();
+        if (!porEstacion[estacion]) porEstacion[estacion] = [];
+        porEstacion[estacion].push(r);
+    }
+
+    // Calcular predicción por estación
+    const predicciones = [];
+    for (const [estacion, registros] of Object.entries(porEstacion)) {
+        if (estacion === 'SIN ESTACIÓN' || estacion === 'TOTAL') continue;
+
+        const dias    = {};
+        const horas   = {};
+        const meses   = {};
+        const tipos   = {};
+
+        for (const r of registros) {
+            const dia  = String(r.DIA_SEMANA || '').trim();
+            const mes  = String(r.MES || '').toLowerCase().trim();
+            const tipo = r._tipo || 'SIN DATO';
+            const horaVal = Number(r.HORA_HECHO);
+            let bloque = 'SIN DATO';
+            if (!isNaN(horaVal) && horaVal >= 0 && horaVal < 1) {
+                const h = Math.floor(horaVal * 24);
+                if (h >= 0  && h < 6)  bloque = '🌙 00:00 - 05:59 (Madrugada)';
+                else if (h >= 6  && h < 12) bloque = '🌅 06:00 - 11:59 (Mañana)';
+                else if (h >= 12 && h < 18) bloque = '☀️ 12:00 - 17:59 (Tarde)';
+                else                         bloque = '🌆 18:00 - 23:59 (Noche)';
+            }
+
+            if (dia)   dias[dia]     = (dias[dia]     || 0) + 1;
+            if (mes)   meses[mes]    = (meses[mes]    || 0) + 1;
+            if (bloque !== 'SIN DATO') horas[bloque] = (horas[bloque] || 0) + 1;
+            tipos[tipo] = (tipos[tipo] || 0) + 1;
+        }
+
+        const maxDia   = Object.entries(dias).sort((a,b)=>b[1]-a[1])[0];
+        const maxHora  = Object.entries(horas).sort((a,b)=>b[1]-a[1])[0];
+        const maxMes   = Object.entries(meses).sort((a,b)=>b[1]-a[1])[0];
+        const maxTipo  = Object.entries(tipos).sort((a,b)=>b[1]-a[1])[0];
+
+        // Nivel de riesgo basado en total de casos
+        const total = registros.length;
+        let nivel = '🟢 Bajo';
+        let colorNivel = '#10b981';
+        if (total > 3000) { nivel = '🔴 Alto';  colorNivel = '#ef4444'; }
+        else if (total > 1000) { nivel = '🟡 Medio'; colorNivel = '#eab308'; }
+
+        predicciones.push({
+            estacion,
+            total,
+            nivel,
+            colorNivel,
+            diaPeligroso:  maxDia  ? `${maxDia[0]} (${maxDia[1]} casos)`   : 'Sin dato',
+            horaPeligrosa: maxHora ? `${maxHora[0]} (${maxHora[1]} casos)` : 'Sin dato',
+            mesPeligroso:  maxMes  ? `${maxMes[0].toUpperCase()} (${maxMes[1]} casos)` : 'Sin dato',
+            delitoPrincipal: maxTipo ? `${maxTipo[0]} (${maxTipo[1]} casos)` : 'Sin dato',
+        });
+    }
+
+    // Ordenar por total de casos (mayor riesgo primero)
+    predicciones.sort((a,b) => b.total - a.total);
+
+    // Construir panel
+    let panel = document.getElementById('panel-predicciones');
+    if (panel) panel.remove();
+
+    panel = document.createElement('div');
+    panel.id = 'panel-predicciones';
+    panel.style.cssText = `
+        position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+        background:#1e293b; color:white; border-radius:12px;
+        width:780px; max-width:96vw; max-height:90vh;
+        box-shadow:0 20px 60px rgba(0,0,0,0.7);
+        border:1px solid #334155; z-index:99999;
+        display:flex; flex-direction:column; overflow:hidden;
+    `;
+
+    const filasHTML = predicciones.map(p => `
+        <tr style="border-bottom:1px solid #334155;">
+            <td style="padding:10px 12px;font-weight:600;font-size:0.82rem;white-space:nowrap;">${p.estacion.replace('ESTACION ','')}</td>
+            <td style="padding:10px 12px;text-align:center;">
+                <span style="background:${p.colorNivel}22;color:${p.colorNivel};padding:3px 8px;border-radius:20px;font-size:0.78rem;font-weight:bold;">${p.nivel}</span>
+            </td>
+            <td style="padding:10px 12px;text-align:center;font-weight:bold;color:#38bdf8;">${p.total.toLocaleString()}</td>
+            <td style="padding:10px 12px;font-size:0.8rem;color:#cbd5e1;">${p.diaPeligroso}</td>
+            <td style="padding:10px 12px;font-size:0.8rem;color:#cbd5e1;">${p.horaPeligrosa}</td>
+            <td style="padding:10px 12px;font-size:0.8rem;color:#cbd5e1;">${p.mesPeligroso}</td>
+            <td style="padding:10px 12px;font-size:0.8rem;color:#f97316;">${p.delitoPrincipal}</td>
+        </tr>
+    `).join('');
+
+    panel.innerHTML = `
+        <div style="background:#0f172a;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #6366f1;flex-shrink:0;">
+            <div>
+                <h2 style="margin:0;font-size:1.1rem;color:#6366f1;">🔮 Panel de Predicciones por Estación</h2>
+                <small style="color:#94a3b8;">Basado en ${todos.length.toLocaleString()} registros históricos de 2022</small>
+            </div>
+            <button onclick="document.getElementById('panel-predicciones').remove()"
+                style="background:#334155;border:none;color:white;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:1rem;">✕</button>
+        </div>
+
+        <div style="padding:12px 20px;background:#0f172a;flex-shrink:0;border-bottom:1px solid #334155;">
+            <p style="margin:0;font-size:0.82rem;color:#94a3b8;">
+                💡 Esta tabla muestra para cada estación: el día, hora y mes con más casos históricos, 
+                el delito más frecuente y el nivel de riesgo general. 
+                Úsala para orientar patrullajes y operativos preventivos.
+            </p>
+        </div>
+
+        <div style="overflow:auto;flex:1;">
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;min-width:700px;">
+                <thead style="position:sticky;top:0;background:#0f172a;z-index:1;">
+                    <tr>
+                        <th style="padding:10px 12px;text-align:left;color:#38bdf8;border-bottom:2px solid #334155;">Estación</th>
+                        <th style="padding:10px 12px;text-align:center;color:#38bdf8;border-bottom:2px solid #334155;">Riesgo</th>
+                        <th style="padding:10px 12px;text-align:center;color:#38bdf8;border-bottom:2px solid #334155;">Total Casos</th>
+                        <th style="padding:10px 12px;color:#38bdf8;border-bottom:2px solid #334155;">Día más peligroso</th>
+                        <th style="padding:10px 12px;color:#38bdf8;border-bottom:2px solid #334155;">Hora de mayor riesgo</th>
+                        <th style="padding:10px 12px;color:#38bdf8;border-bottom:2px solid #334155;">Mes más crítico</th>
+                        <th style="padding:10px 12px;color:#38bdf8;border-bottom:2px solid #334155;">Delito principal</th>
+                    </tr>
+                </thead>
+                <tbody>${filasHTML}</tbody>
+            </table>
+        </div>
+
+        <div style="padding:12px 20px;background:#0f172a;flex-shrink:0;border-top:1px solid #334155;display:flex;gap:16px;">
+            <span style="font-size:0.78rem;color:#94a3b8;">🔴 Alto: más de 3,000 casos</span>
+            <span style="font-size:0.78rem;color:#94a3b8;">🟡 Medio: 1,000 - 3,000 casos</span>
+            <span style="font-size:0.78rem;color:#94a3b8;">🟢 Bajo: menos de 1,000 casos</span>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+    mostrarNotificacion("✅ Predicciones calculadas");
 }
