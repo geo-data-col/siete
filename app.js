@@ -1096,3 +1096,335 @@ async function toggleAMVA() {
     btn.style.background = '#6366f1';
     btn.innerText = '✅ Ocultar AMVA';
 }
+
+// ==========================================================================
+// MÓDULO FILTRO POR COMUNA + DESCARGA
+// ==========================================================================
+
+// Mapeo de nombre de comuna a valor en COMUNAS_ZONAS_DESCRIPCION
+const MAPA_COMUNAS = {
+    'Popular':          'POPULAR',
+    'Santa Cruz':       'SANTA CRUZ',
+    'Manrique':         'MANRIQUE',
+    'Aranjuez':         'ARANJUEZ',
+    'Castilla':         'CASTILLA',
+    'Doce de Octubre':  'DOCE DE OCTUBRE',
+    'Robledo':          'ROBLEDO',
+    'Villa Hermosa':    'VILLA HERMOSA',
+    'Buenos Aires':     'BUENOS AIRES',
+    'La Candelaria':    'CANDELARIA',
+    'Laureles Estadio': 'LAURELES',
+    'La América':       'LA AMERICA',
+    'San Javier':       'SAN JAVIER',
+    'El Poblado':       'POBLADO',
+    'Belén':            'BELEN',
+    'Guayabal':         'GUAYABAL',
+};
+
+let comunaFiltradaActual = null;
+let capaResaltadaComuna  = null;
+
+function filtrarPorComuna() {
+    const select = document.getElementById('filtro-comuna-select');
+    const nombreComuna = select.value;
+
+    // Limpiar resaltado anterior
+    if (capaResaltadaComuna) {
+        mapa.removeLayer(capaResaltadaComuna);
+        capaResaltadaComuna = null;
+    }
+
+    if (!nombreComuna) {
+        comunaFiltradaActual = null;
+        aplicarFiltros();
+        return;
+    }
+
+    comunaFiltradaActual = nombreComuna;
+
+    // Resaltar el polígono de la comuna en el mapa
+    if (capasComunas) {
+        capasComunas.eachLayer(layer => {
+            const nombre = layer.feature?.properties?.Nombre_Com;
+            if (nombre === nombreComuna) {
+                const bounds = layer.getBounds();
+                mapa.fitBounds(bounds, { padding: [40, 40] });
+
+                capaResaltadaComuna = L.geoJSON(layer.feature, {
+                    style: {
+                        fillColor: '#38bdf8',
+                        weight: 3,
+                        opacity: 1,
+                        color: '#38bdf8',
+                        fillOpacity: 0.15,
+                        dashArray: null,
+                    }
+                }).addTo(mapa);
+            }
+        });
+    }
+
+    // Aplicar filtro de delitos
+    aplicarFiltrosComunaCompleto();
+}
+
+function aplicarFiltrosComunaCompleto() {
+    const nombreComuna     = comunaFiltradaActual;
+    const valorBusqueda    = nombreComuna ? (MAPA_COMUNAS[nombreComuna] || nombreComuna.toUpperCase()) : null;
+    const tipoSeleccionado = document.getElementById('filtro-delito').value;
+    const estacionSel      = document.getElementById('filtro-estacion').value.toUpperCase().trim();
+    const fechaInicio      = document.getElementById('filtro-fecha-inicio').value;
+    const fechaFin         = document.getElementById('filtro-fecha-fin').value;
+    const modoCalor        = document.getElementById('filtro-modo').value === 'calor';
+
+    const dInicio = fechaInicio ? new Date(fechaInicio + 'T00:00:00Z') : null;
+    const dFin    = fechaFin    ? new Date(fechaFin    + 'T23:59:59Z') : null;
+
+    if (capaActual) { mapa.removeLayer(capaActual); capaActual = null; }
+    if (capaCalor)  { mapa.removeLayer(capaCalor);  capaCalor  = null; }
+
+    const tiposAMostrar = tipoSeleccionado === 'todos' ? Object.keys(COLORES) : [tipoSeleccionado];
+    const puntosCalor = [];
+    capaActual = L.layerGroup();
+    registrosFiltrados = [];
+    let totalPuntos = 0;
+
+    for (const tipo of tiposAMostrar) {
+        const registros = todosLosDelitos[tipo] || [];
+        const color  = COLORES[tipo] || '#94a3b8';
+        const nombre = NOMBRES[tipo] || tipo;
+        const articuloFiltro = FILTRO_CONDUCTA[tipo] || null;
+
+        for (const registro of registros) {
+            if (!registro) continue;
+
+            if (articuloFiltro) {
+                const conducta = String(registro.DESCRIPCION_CONDUCTA || '').toUpperCase();
+                if (!conducta.includes(articuloFiltro)) continue;
+            }
+
+            // Filtro por comuna
+            if (valorBusqueda) {
+                const comunaReg = String(registro.COMUNAS_ZONAS_DESCRIPCION || '').toUpperCase();
+                if (!comunaReg.includes(valorBusqueda)) continue;
+            }
+
+            if (estacionSel) {
+                const estacion = String(registro['JURIS_ESTACIÓN _ ÁREA'] || '').toUpperCase();
+                if (!estacion.includes(estacionSel)) continue;
+            }
+
+            if (dInicio || dFin) {
+                const fechaR = aFecha(registro.FECHA_HECHO);
+                if (!fechaR) continue;
+                if (dInicio && fechaR < dInicio) continue;
+                if (dFin    && fechaR > dFin)    continue;
+            }
+
+            const lat = aNumero(registro.LATITUD || registro.LATITUD_HECHO);
+            const lon = aNumero(registro.LONGITUD || registro.LONGITUD_HECHO);
+            if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) continue;
+
+            registrosFiltrados.push({ ...registro, _tipo: nombre, _color: color });
+
+            if (modoCalor) {
+                puntosCalor.push([lat, lon, 1]);
+            } else {
+                const circulo = L.circleMarker([lat, lon], {
+                    radius: 5, fillColor: color, color: '#fff',
+                    weight: 1, opacity: 0.9, fillOpacity: 0.8
+                });
+                circulo.bindPopup(construirPopup(registro, nombre, color), { maxWidth: 320 });
+                capaActual.addLayer(circulo);
+            }
+            totalPuntos++;
+        }
+    }
+
+    if (modoCalor && puntosCalor.length > 0) {
+        capaCalor = L.heatLayer(puntosCalor, {
+            radius: 20, blur: 25, maxZoom: 17,
+            gradient: { 0.2: '#3b82f6', 0.4: '#10b981', 0.6: '#eab308', 0.8: '#f97316', 1.0: '#ef4444' }
+        }).addTo(mapa);
+    } else {
+        capaActual.addTo(mapa);
+    }
+
+    mostrarNotificacion(`📍 ${totalPuntos.toLocaleString()} registros en ${nombreComuna || 'todos'}`);
+}
+
+// ==========================================================================
+// DESCARGAR IMAGEN DEL MAPA
+// ==========================================================================
+function descargarImagenMapa() {
+    const nombreComuna = comunaFiltradaActual || 'mapa';
+    mostrarNotificacion("📸 Capturando imagen del mapa...");
+
+    // Usar leaflet-image
+    if (typeof leafletImage === 'undefined') {
+        // Cargar librería dinámicamente
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/leaflet-image@0.4.0/leaflet-image.js';
+        script.onload = () => capturarMapa(nombreComuna);
+        document.head.appendChild(script);
+    } else {
+        capturarMapa(nombreComuna);
+    }
+}
+
+function capturarMapa(nombreComuna) {
+    leafletImage(mapa, (err, canvas) => {
+        if (err) {
+            mostrarNotificacion("❌ Error capturando el mapa");
+            console.error(err);
+            return;
+        }
+
+        // Agregar título al canvas
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(0, 0, canvas.width, 50);
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold 18px Arial';
+        ctx.fillText(`🛡️ SIETE — ${nombreComuna} — ${new Date().toLocaleDateString('es-CO')}`, 15, 32);
+
+        // Descargar
+        const link = document.createElement('a');
+        link.download = `SIETE_mapa_${nombreComuna.replace(/ /g,'_')}_${new Date().toISOString().slice(0,10)}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        mostrarNotificacion("✅ Imagen del mapa descargada");
+    });
+}
+
+// ==========================================================================
+// PANEL DE DESCARGA POR COMUNA
+// ==========================================================================
+function abrirDescargaComuna() {
+    const nombreComuna = comunaFiltradaActual;
+    if (!nombreComuna) {
+        mostrarNotificacion("⚠️ Primero selecciona una comuna en el filtro");
+        return;
+    }
+    if (registrosFiltrados.length === 0) {
+        mostrarNotificacion("⚠️ No hay registros para descargar");
+        return;
+    }
+
+    let panel = document.getElementById('panel-descarga-comuna');
+    if (panel) panel.remove();
+
+    panel = document.createElement('div');
+    panel.id = 'panel-descarga-comuna';
+    panel.style.cssText = `
+        position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+        background:#1e293b; color:white; border-radius:12px;
+        width:420px; max-width:96vw;
+        box-shadow:0 20px 60px rgba(0,0,0,0.7);
+        border:1px solid #334155; z-index:99999; overflow:hidden;
+    `;
+
+    // Contar por tipo
+    const porTipo = {};
+    for (const r of registrosFiltrados) {
+        porTipo[r._tipo] = (porTipo[r._tipo] || 0) + 1;
+    }
+    const resumenTipos = Object.entries(porTipo)
+        .sort((a,b) => b[1]-a[1])
+        .map(([t,v]) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #334155;">
+            <span style="font-size:0.82rem;">${t}</span>
+            <span style="font-weight:bold;color:#38bdf8;">${v}</span>
+        </div>`).join('');
+
+    panel.innerHTML = `
+        <div style="background:#0f172a;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #38bdf8;">
+            <div>
+                <h2 style="margin:0;font-size:1.1rem;color:#38bdf8;">📥 Descargar — ${nombreComuna}</h2>
+                <small style="color:#94a3b8;">${registrosFiltrados.length.toLocaleString()} registros encontrados</small>
+            </div>
+            <button onclick="document.getElementById('panel-descarga-comuna').remove()"
+                style="background:#334155;border:none;color:white;padding:6px 14px;border-radius:6px;cursor:pointer;">✕</button>
+        </div>
+
+        <div style="padding:20px;display:flex;flex-direction:column;gap:12px;">
+
+            <!-- Resumen -->
+            <div style="background:#0f172a;border-radius:8px;padding:14px;">
+                <h3 style="margin:0 0 10px;font-size:0.85rem;color:#94a3b8;">Resumen por delito</h3>
+                ${resumenTipos}
+            </div>
+
+            <!-- Botones descarga -->
+            <button onclick="exportarExcel();document.getElementById('panel-descarga-comuna').remove();"
+                style="background:#10b981;color:white;border:none;padding:14px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:0.95rem;width:100%;">
+                📊 Descargar Excel (${registrosFiltrados.length} registros)
+            </button>
+
+            <button onclick="exportarPDFComuna('${nombreComuna}');document.getElementById('panel-descarga-comuna').remove();"
+                style="background:#ef4444;color:white;border:none;padding:14px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:0.95rem;width:100%;">
+                📄 Descargar PDF Reporte
+            </button>
+
+            <button onclick="descargarImagenMapa();document.getElementById('panel-descarga-comuna').remove();"
+                style="background:#6366f1;color:white;border:none;padding:14px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:0.95rem;width:100%;">
+                🗺️ Descargar Imagen del Mapa
+            </button>
+
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+}
+
+function exportarPDFComuna(nombreComuna) {
+    const porTipo = {};
+    const porDia  = {};
+    const porMod  = {};
+    for (const r of registrosFiltrados) {
+        porTipo[r._tipo]              = (porTipo[r._tipo]              || 0) + 1;
+        porDia[r.DIA_SEMANA || '?']   = (porDia[r.DIA_SEMANA || '?']  || 0) + 1;
+        porMod[r.MODALIDAD  || '?']   = (porMod[r.MODALIDAD  || '?']  || 0) + 1;
+    }
+
+    const filasTipo = Object.entries(porTipo).sort((a,b)=>b[1]-a[1])
+        .map(([k,v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
+    const filasMod = Object.entries(porMod).sort((a,b)=>b[1]-a[1]).slice(0,10)
+        .map(([k,v]) => `<tr><td>${k}</td><td style="text-align:right">${v}</td></tr>`).join('');
+    const filasD = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
+        .map(d => `<tr><td>${d}</td><td style="text-align:right">${porDia[d]||0}</td></tr>`).join('');
+
+    const w = window.open('', '_blank');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>SIETE - ${nombreComuna}</title>
+    <style>
+        body{font-family:Arial,sans-serif;padding:30px;color:#1e293b;}
+        h1{color:#0f172a;border-bottom:3px solid #38bdf8;padding-bottom:10px;}
+        h2{color:#334155;margin-top:20px;font-size:1rem;}
+        table{width:100%;border-collapse:collapse;margin-top:8px;font-size:0.85rem;}
+        th{background:#1e293b;color:white;padding:8px 12px;text-align:left;}
+        td{padding:6px 12px;border-bottom:1px solid #e2e8f0;}
+        tr:nth-child(even){background:#f8fafc;}
+        .cards{display:flex;gap:12px;margin:16px 0;}
+        .card{background:#0f172a;color:white;padding:12px;border-radius:8px;text-align:center;flex:1;}
+        .num{font-size:1.8rem;font-weight:bold;color:#38bdf8;}
+        .sub{font-size:0.75rem;color:#94a3b8;}
+        .pie{margin-top:20px;font-size:0.75rem;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:8px;}
+    </style></head><body>
+    <h1>🛡️ SIETE — Reporte Comuna ${nombreComuna}</h1>
+    <p>Generado: ${new Date().toLocaleDateString('es-CO')} ${new Date().toLocaleTimeString('es-CO')}</p>
+    <div class="cards">
+        <div class="card"><div class="num">${registrosFiltrados.length}</div><div class="sub">Total Casos</div></div>
+        <div class="card"><div class="num">${Object.keys(porTipo).length}</div><div class="sub">Tipos Delito</div></div>
+        <div class="card"><div class="num">${Object.keys(porMod).length}</div><div class="sub">Modalidades</div></div>
+    </div>
+    <h2>Por Tipo de Delito</h2>
+    <table><tr><th>Delito</th><th style="text-align:right">Casos</th></tr>${filasTipo}</table>
+    <h2>Top 10 Modalidades</h2>
+    <table><tr><th>Modalidad</th><th style="text-align:right">Casos</th></tr>${filasMod}</table>
+    <h2>Por Día de Semana</h2>
+    <table><tr><th>Día</th><th style="text-align:right">Casos</th></tr>${filasD}</table>
+    <div class="pie">Sistema de Información Estadístico Territorial — SIETE © 2026</div>
+    <script>window.onload=()=>window.print();<\/script>
+    </body></html>`);
+    w.document.close();
+}
