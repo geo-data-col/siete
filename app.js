@@ -972,3 +972,127 @@ function calcularRiesgo() {
     `;
 }
 
+// ==========================================================================
+// MÓDULO DE CAPAS GEOGRÁFICAS — Comunas y AMVA
+// ==========================================================================
+let capasComunas = null;
+let capasAMVA = null;
+let comunasVisibles = false;
+let amvaVisible = false;
+
+const COLORES_COMUNAS = [
+    '#ef4444','#f97316','#eab308','#84cc16','#10b981',
+    '#06b6d4','#3b82f6','#8b5cf6','#ec4899','#14b8a6',
+    '#f59e0b','#6366f1','#dc2626','#0ea5e9','#65a30d','#d946ef'
+];
+
+async function toggleComunas() {
+    const btn = document.getElementById('btn-comunas');
+
+    if (comunasVisibles) {
+        if (capasComunas) mapa.removeLayer(capasComunas);
+        comunasVisibles = false;
+        btn.style.background = '#334155';
+        btn.innerText = '🗺️ Ver Comunas';
+        return;
+    }
+
+    if (!capasComunas) {
+        mostrarNotificacion("⏳ Cargando comunas...");
+        try {
+            const resp = await fetch('https://geo-data-col.github.io/siete/comunas_medellin.geojson');
+            const data = await resp.json();
+
+            let colorIndex = 0;
+            capasComunas = L.geoJSON(data, {
+                style: (feature) => ({
+                    fillColor: COLORES_COMUNAS[colorIndex++ % COLORES_COMUNAS.length],
+                    weight: 2,
+                    opacity: 1,
+                    color: 'white',
+                    fillOpacity: 0.25
+                }),
+                onEachFeature: (feature, layer) => {
+                    const nombre = feature.properties.Nombre_Com || 'Sin nombre';
+                    const numero = feature.properties.Numero_Com || '';
+                    layer.bindPopup(`
+                        <div style="background:#1e293b;color:white;padding:10px;border-radius:8px;min-width:150px;">
+                            <div style="font-weight:bold;font-size:1rem;color:#38bdf8;">Comuna ${numero}</div>
+                            <div style="font-size:0.9rem;margin-top:4px;">${nombre}</div>
+                        </div>
+                    `);
+                    layer.on('mouseover', function() {
+                        this.setStyle({ fillOpacity: 0.5, weight: 3 });
+                    });
+                    layer.on('mouseout', function() {
+                        this.setStyle({ fillOpacity: 0.25, weight: 2 });
+                    });
+                }
+            });
+            mostrarNotificacion("✅ Comunas cargadas");
+        } catch (e) {
+            mostrarNotificacion("❌ Error cargando comunas");
+            return;
+        }
+    }
+
+    capasComunas.addTo(mapa);
+    comunasVisibles = true;
+    btn.style.background = '#10b981';
+    btn.innerText = '✅ Ocultar Comunas';
+}
+
+async function toggleAMVA() {
+    const btn = document.getElementById('btn-amva');
+
+    if (amvaVisible) {
+        if (capasAMVA) mapa.removeLayer(capasAMVA);
+        amvaVisible = false;
+        btn.style.background = '#334155';
+        btn.innerText = '🏙️ Ver AMVA';
+        return;
+    }
+
+    if (!capasAMVA) {
+        mostrarNotificacion("⏳ Cargando municipios AMVA...");
+        try {
+            const resp = await fetch('https://geo-data-col.github.io/siete/amva_municipios.geojson');
+            const data = await resp.json();
+
+            capasAMVA = L.geoJSON(data, {
+                style: () => ({
+                    fillColor: '#6366f1',
+                    weight: 2,
+                    opacity: 1,
+                    color: '#38bdf8',
+                    dashArray: '5',
+                    fillOpacity: 0.1
+                }),
+                onEachFeature: (feature, layer) => {
+                    const nombre = feature.properties.MpNombre || 'Sin nombre';
+                    layer.bindPopup(`
+                        <div style="background:#1e293b;color:white;padding:10px;border-radius:8px;min-width:150px;">
+                            <div style="font-weight:bold;font-size:1rem;color:#6366f1;">Municipio</div>
+                            <div style="font-size:0.9rem;margin-top:4px;">${nombre}</div>
+                        </div>
+                    `);
+                    layer.on('mouseover', function() {
+                        this.setStyle({ fillOpacity: 0.3, weight: 3 });
+                    });
+                    layer.on('mouseout', function() {
+                        this.setStyle({ fillOpacity: 0.1, weight: 2 });
+                    });
+                }
+            });
+            mostrarNotificacion("✅ Municipios AMVA cargados");
+        } catch (e) {
+            mostrarNotificacion("❌ Error cargando AMVA");
+            return;
+        }
+    }
+
+    capasAMVA.addTo(mapa);
+    amvaVisible = true;
+    btn.style.background = '#6366f1';
+    btn.innerText = '✅ Ocultar AMVA';
+}
