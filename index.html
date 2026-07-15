@@ -1,20 +1,117 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SIETE - Sistema de Información Estadístico</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="estilos.css">
-</head>
+    <style>
+        /* PESTAÑAS */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #334155;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+        .tab-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            color: #94a3b8;
+            padding: 10px 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+        .tab-btn.activa {
+            color: #38bdf8;
+            border-bottom: 2px solid #38bdf8;
+        }
+        .tab-btn:hover { color: #cbd5e1; }
+        .tab-contenido { display: none; flex-direction: column; gap: 12px; overflow-y: auto; flex: 1; }
+        .tab-contenido.activa { display: flex; }
 
+        /* PANEL */
+        .panel-lateral {
+            width: 280px;
+            min-width: 280px;
+            background-color: #1e293b;
+            color: white;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+        }
+
+        /* SELECTORES */
+        .panel-lateral select,
+        .panel-lateral input[type="date"],
+        .panel-lateral input[type="text"] {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: white;
+            font-size: 0.82rem;
+        }
+        .panel-lateral label {
+            color: #94a3b8;
+            font-size: 0.75rem;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .panel-lateral h3 {
+            font-size: 0.8rem;
+            color: #cbd5e1;
+            margin: 0 0 6px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* BOTONES */
+        .btn-panel {
+            width: 100%;
+            border: none;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: opacity 0.2s;
+        }
+        .btn-panel:hover { opacity: 0.85; }
+        .btn-primario  { background: #38bdf8; color: #0f172a; }
+        .btn-secundario { background: #334155; color: white; }
+        .btn-verde     { background: #10b981; color: white; }
+        .btn-morado    { background: #6366f1; color: white; }
+        .btn-rojo      { background: #ef4444; color: white; }
+
+        .grupo-campo { display: flex; flex-direction: column; gap: 4px; }
+        .separador { border: none; border-top: 1px solid #334155; margin: 4px 0; }
+    </style>
+</head>
 <body>
 
+    <!-- LOGIN -->
     <div id="pantalla-login" class="login-container">
         <div class="login-card">
             <div class="login-logo">
-                <span class="icon-logo"> </span>
+                <span class="icon-logo">🛡️</span>
                 <h1>SIETE</h1>
                 <p>Sistema de Información Estadístico</p>
             </div>
@@ -33,144 +130,167 @@
         </div>
     </div>
 
-    <div class="contenedor-principal" id="contenido-plataforma" style="display: none;">
+    <!-- PLATAFORMA -->
+    <div class="contenedor-principal" id="contenido-plataforma" style="display:none;">
 
         <aside class="panel-lateral">
 
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span style="font-size:1.8rem;">🛡️</span>
+            <!-- LOGO -->
+            <div class="panel-header">
+                <span style="font-size:1.6rem;">🛡️</span>
                 <div>
-                    <h2 style="font-size:1.4rem;color:#fff;margin:0;font-weight:800;">SIETE</h2>
-                    <small style="color:#38bdf8;font-size:0.7rem;">Análisis Criminalístico</small>
+                    <div style="font-size:1.2rem;font-weight:800;color:#fff;">SIETE</div>
+                    <div style="color:#38bdf8;font-size:0.65rem;">Análisis Criminalístico</div>
                 </div>
             </div>
 
-            <div class="info-adicional">
-                <h3>🚨 Tipo de Delito</h3>
-                <select id="filtro-delito" style="width:100%;padding:10px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:white;font-size:0.9rem;">
-                    <option value="todos">— Todos los delitos —</option>
-                    <option value="homicidios">Homicidios</option>
-                    <option value="lesiones">Lesiones Personales</option>
-                    <option value="hurto_personas">Hurto a Personas</option>
-                    <option value="hurto_residencias">Hurto a Residencias</option>
-                    <option value="hurto_comercio">Hurto a Comercio</option>
-                    <option value="hurto_bancos">Hurto a Bancos</option>
-                    <option value="hurto_automotores">Hurto Automotores</option>
-                    <option value="hurto_motocicletas">Hurto Motocicletas</option>
-                    <option value="hurto_celulares">Hurto Celulares</option>
-                    <option value="hurto_bicicletas">Hurto Bicicletas</option>
-                    <option value="hurto_abigeato">Hurto Abigeato</option>
-                    <option value="extorsion">Extorsión</option>
-                    <option value="secuestro">Secuestro</option>
-                    <option value="terrorismo">Terrorismo</option>
-                </select>
+            <!-- PESTAÑAS -->
+            <div class="tabs">
+                <button class="tab-btn activa" onclick="cambiarTab('filtros', this)">🔍 Filtros</button>
+                <button class="tab-btn" onclick="cambiarTab('capas', this)">🗺️ Capas</button>
+                <button class="tab-btn" onclick="cambiarTab('analisis', this)">📊 Análisis</button>
             </div>
 
-            <div class="info-adicional">
-                <h3>📅 Rango de Fechas</h3>
-                <label style="color:#94a3b8;font-size:0.8rem;">Desde:</label>
-                <input type="date" id="filtro-fecha-inicio"
-                    style="width:100%;padding:8px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:white;margin-bottom:8px;">
-                <label style="color:#94a3b8;font-size:0.8rem;">Hasta:</label>
-                <input type="date" id="filtro-fecha-fin"
-                    style="width:100%;padding:8px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:white;">
+            <!-- TAB FILTROS -->
+            <div id="tab-filtros" class="tab-contenido activa">
+
+                <div class="grupo-campo">
+                    <h3>🚨 Tipo de Delito</h3>
+                    <select id="filtro-delito">
+                        <option value="todos">— Todos los delitos —</option>
+                        <option value="homicidios">Homicidios</option>
+                        <option value="lesiones">Lesiones Personales</option>
+                        <option value="hurto_personas">Hurto a Personas</option>
+                        <option value="hurto_residencias">Hurto a Residencias</option>
+                        <option value="hurto_comercio">Hurto a Comercio</option>
+                        <option value="hurto_bancos">Hurto a Bancos</option>
+                        <option value="hurto_automotores">Hurto Automotores</option>
+                        <option value="hurto_motocicletas">Hurto Motocicletas</option>
+                        <option value="hurto_celulares">Hurto Celulares</option>
+                        <option value="hurto_bicicletas">Hurto Bicicletas</option>
+                        <option value="hurto_abigeato">Hurto Abigeato</option>
+                        <option value="extorsion">Extorsión</option>
+                        <option value="secuestro">Secuestro</option>
+                        <option value="terrorismo">Terrorismo</option>
+                    </select>
+                </div>
+
+                <div class="grupo-campo">
+                    <h3>📅 Rango de Fechas</h3>
+                    <label>Desde:</label>
+                    <input type="date" id="filtro-fecha-inicio" style="margin-bottom:6px;">
+                    <label>Hasta:</label>
+                    <input type="date" id="filtro-fecha-fin">
+                </div>
+
+                <div class="grupo-campo">
+                    <h3>🚔 Estación / Área</h3>
+                    <select id="filtro-estacion">
+                        <option value="">— Todas las estaciones —</option>
+                        <option value="ESTACION ARANJUEZ">Estación Aranjuez</option>
+                        <option value="ESTACION BARBOSA">Estación Barbosa</option>
+                        <option value="ESTACION BELEN">Estación Belén</option>
+                        <option value="ESTACION BELLO">Estación Bello</option>
+                        <option value="ESTACION BUENOS AIRES">Estación Buenos Aires</option>
+                        <option value="ESTACION CALDAS">Estación Caldas</option>
+                        <option value="ESTACION CANDELARIA">Estación Candelaria</option>
+                        <option value="ESTACION CASTILLA">Estación Castilla</option>
+                        <option value="ESTACION COPACABANA">Estación Copacabana</option>
+                        <option value="ESTACION DOCE DE OCTUBRE">Estación Doce de Octubre</option>
+                        <option value="ESTACION ENVIGADO">Estación Envigado</option>
+                        <option value="ESTACION GIRARDOTA">Estación Girardota</option>
+                        <option value="ESTACION ITAGUI">Estación Itagüí</option>
+                        <option value="ESTACION LA ESTRELLA">Estación La Estrella</option>
+                        <option value="ESTACION LAURELES">Estación Laureles</option>
+                        <option value="ESTACION MANRIQUE">Estación Manrique</option>
+                        <option value="ESTACION POBLADO">Estación Poblado</option>
+                        <option value="ESTACION POPULAR">Estación Popular</option>
+                        <option value="ESTACION SABANETA">Estación Sabaneta</option>
+                        <option value="ESTACION SAN ANTONIO DE PRADO">Estación San Antonio de Prado</option>
+                        <option value="ESTACION SAN JAVIER">Estación San Javier</option>
+                        <option value="ESTACION SANTA CRUZ">Estación Santa Cruz</option>
+                        <option value="ESTACION VILLA HERMOSA">Estación Villa Hermosa</option>
+                    </select>
+                </div>
+
+                <div class="grupo-campo">
+                    <h3>🏘️ Comuna</h3>
+                    <select id="filtro-comuna-select" style="margin-bottom:6px;">
+                        <option value="">— Todas las comunas —</option>
+                        <option value="Popular">Comuna 1 - Popular</option>
+                        <option value="Santa Cruz">Comuna 2 - Santa Cruz</option>
+                        <option value="Manrique">Comuna 3 - Manrique</option>
+                        <option value="Aranjuez">Comuna 4 - Aranjuez</option>
+                        <option value="Castilla">Comuna 5 - Castilla</option>
+                        <option value="Doce de Octubre">Comuna 6 - Doce de Octubre</option>
+                        <option value="Robledo">Comuna 7 - Robledo</option>
+                        <option value="Villa Hermosa">Comuna 8 - Villa Hermosa</option>
+                        <option value="Buenos Aires">Comuna 9 - Buenos Aires</option>
+                        <option value="La Candelaria">Comuna 10 - La Candelaria</option>
+                        <option value="Laureles Estadio">Comuna 11 - Laureles</option>
+                        <option value="La América">Comuna 12 - La América</option>
+                        <option value="San Javier">Comuna 13 - San Javier</option>
+                        <option value="El Poblado">Comuna 14 - El Poblado</option>
+                        <option value="Belén">Comuna 15 - Belén</option>
+                        <option value="Guayabal">Comuna 16 - Guayabal</option>
+                    </select>
+                </div>
+
+                <div class="grupo-campo">
+                    <h3>🗺️ Visualización</h3>
+                    <select id="filtro-modo">
+                        <option value="puntos">📍 Puntos por delito</option>
+                        <option value="calor">🔥 Mapa de calor</option>
+                    </select>
+                </div>
+
+                <button class="btn-panel btn-primario" onclick="filtrarPorComuna()">🔍 Consultar</button>
+                <button class="btn-panel btn-secundario" onclick="limpiarFiltros()">🔄 Limpiar filtros</button>
+
             </div>
 
-            <div class="info-adicional">
-                <h3>🚔 Estación / Área</h3>
-                <select id="filtro-estacion" style="width:100%;padding:10px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:white;font-size:0.85rem;">
-                    <option value="">— Todas las estaciones —</option>
-                    <option value="ESTACION ARANJUEZ">Estación Aranjuez</option>
-                    <option value="ESTACION BARBOSA">Estación Barbosa</option>
-                    <option value="ESTACION BELEN">Estación Belén</option>
-                    <option value="ESTACION BELLO">Estación Bello</option>
-                    <option value="ESTACION BUENOS AIRES">Estación Buenos Aires</option>
-                    <option value="ESTACION CALDAS">Estación Caldas</option>
-                    <option value="ESTACION CANDELARIA">Estación Candelaria</option>
-                    <option value="ESTACION CASTILLA">Estación Castilla</option>
-                    <option value="ESTACION COPACABANA">Estación Copacabana</option>
-                    <option value="ESTACION DOCE DE OCTUBRE">Estación Doce de Octubre</option>
-                    <option value="ESTACION ENVIGADO">Estación Envigado</option>
-                    <option value="ESTACION GIRARDOTA">Estación Girardota</option>
-                    <option value="ESTACION ITAGUI">Estación Itagüí</option>
-                    <option value="ESTACION LA ESTRELLA">Estación La Estrella</option>
-                    <option value="ESTACION LAURELES">Estación Laureles</option>
-                    <option value="ESTACION MANRIQUE">Estación Manrique</option>
-                    <option value="ESTACION POBLADO">Estación Poblado</option>
-                    <option value="ESTACION POPULAR">Estación Popular</option>
-                    <option value="ESTACION SABANETA">Estación Sabaneta</option>
-                    <option value="ESTACION SAN ANTONIO DE PRADO">Estación San Antonio de Prado</option>
-                    <option value="ESTACION SAN JAVIER">Estación San Javier</option>
-                    <option value="ESTACION SANTA CRUZ">Estación Santa Cruz</option>
-                    <option value="ESTACION VILLA HERMOSA">Estación Villa Hermosa</option>
-                </select>
+            <!-- TAB CAPAS -->
+            <div id="tab-capas" class="tab-contenido">
+
+                <p style="color:#94a3b8;font-size:0.8rem;margin:0;">Activa o desactiva capas geográficas sobre el mapa.</p>
+
+                <div class="grupo-campo">
+                    <h3>🏙️ Medellín</h3>
+                    <button id="btn-comunas" class="btn-panel btn-secundario" onclick="toggleComunas()">🗺️ Ver Comunas</button>
+                </div>
+
+                <div class="grupo-campo">
+                    <h3>🌆 Área Metropolitana</h3>
+                    <button id="btn-amva" class="btn-panel btn-secundario" onclick="toggleAMVA()">🏙️ Ver AMVA</button>
+                </div>
+
             </div>
-            <div class="info-adicional">
-    <h3>🏘️ Filtro por Comuna</h3>
-    <select id="filtro-comuna-select" style="width:100%;padding:10px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:white;font-size:0.85rem;margin-bottom:8px;">
-        <option value="">— Todas las comunas —</option>
-        <option value="Popular">Comuna 1 - Popular</option>
-        <option value="Santa Cruz">Comuna 2 - Santa Cruz</option>
-        <option value="Manrique">Comuna 3 - Manrique</option>
-        <option value="Aranjuez">Comuna 4 - Aranjuez</option>
-        <option value="Castilla">Comuna 5 - Castilla</option>
-        <option value="Doce de Octubre">Comuna 6 - Doce de Octubre</option>
-        <option value="Robledo">Comuna 7 - Robledo</option>
-        <option value="Villa Hermosa">Comuna 8 - Villa Hermosa</option>
-        <option value="Buenos Aires">Comuna 9 - Buenos Aires</option>
-        <option value="La Candelaria">Comuna 10 - La Candelaria</option>
-        <option value="Laureles Estadio">Comuna 11 - Laureles</option>
-        <option value="La América">Comuna 12 - La América</option>
-        <option value="San Javier">Comuna 13 - San Javier</option>
-        <option value="El Poblado">Comuna 14 - El Poblado</option>
-        <option value="Belén">Comuna 15 - Belén</option>
-        <option value="Guayabal">Comuna 16 - Guayabal</option>
-    </select>
-    <button onclick="filtrarPorComuna()" style="width:100%;background:#38bdf8;color:#0f172a;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;margin-bottom:6px;">
-        🔍 Filtrar por Comuna
-    </button>
-    <button onclick="abrirDescargaComuna()" style="width:100%;background:#334155;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:600;">
-        📥 Descargar Comuna
-    </button>
-</div>
 
-            <div class="info-adicional">
-                <h3>🗺️ Modo de Visualización</h3>
-                <select id="filtro-modo" style="width:100%;padding:10px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:white;font-size:0.9rem;">
-                    <option value="puntos">📍 Puntos por delito</option>
-                    <option value="calor">🔥 Mapa de calor</option>
-                </select>
+            <!-- TAB ANÁLISIS -->
+            <div id="tab-analisis" class="tab-contenido">
+
+                <p style="color:#94a3b8;font-size:0.8rem;margin:0;">Herramientas de análisis y exportación.</p>
+
+                <div class="grupo-campo">
+                    <h3>📊 Estadísticas</h3>
+                    <button class="btn-panel btn-morado" onclick="abrirEstadisticas()">📊 Ver Estadísticas</button>
+                </div>
+
+                <div class="grupo-campo">
+                    <h3>🔮 Predicciones</h3>
+                    <button class="btn-panel btn-morado" onclick="abrirPredicciones()">🔮 Panel Predicciones</button>
+                    <button class="btn-panel btn-secundario" style="margin-top:6px;" onclick="abrirConsultorRiesgo()">🎯 Consultor de Riesgo</button>
+                </div>
+
+                <div class="grupo-campo">
+                    <h3>📥 Descargar</h3>
+                    <button class="btn-panel btn-verde" onclick="abrirDescargaComuna()">📥 Descargar por Comuna</button>
+                </div>
+
             </div>
-            <div class="info-adicional">
-    <h3>🗺️ Capas Geográficas</h3>
-    <button id="btn-comunas" onclick="toggleComunas()" 
-        style="width:100%;background:#334155;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:600;margin-bottom:8px;">
-        🗺️ Ver Comunas
-    </button>
-    <button id="btn-amva" onclick="toggleAMVA()" 
-        style="width:100%;background:#334155;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:600;">
-        🏙️ Ver AMVA
-    </button>
-</div>
 
-            <button onclick="aplicarFiltros()" style="background:#38bdf8;color:#0f172a;border:none;padding:12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:1rem;width:100%;">
-                🔍 Consultar
-            </button>
-
-            <button onclick="limpiarFiltros()" style="background:#334155;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:0.9rem;width:100%;">
-                🔄 Limpiar filtros
-            </button>
-            <button onclick="abrirEstadisticas()" style="background:#6366f1;color:white;border:none;padding:12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:1rem;width:100%;">
-    📊 Estadísticas
-</button>
-            <button onclick="abrirPredicciones()" style="background:#6366f1;color:white;border:none;padding:12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:1rem;width:100%;">
-    🔮 Predicciones
-</button>
-            <button onclick="abrirConsultorRiesgo()" style="background:#0f172a;color:#6366f1;border:2px solid #6366f1;padding:12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:1rem;width:100%;">
-    🎯 Consultor de Riesgo
-</button>
-
-            <button id="btn-cerrar-sesion" style="margin-top:auto;background:#ef4444;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-weight:bold;">
+            <!-- CERRAR SESIÓN -->
+            <button id="btn-cerrar-sesion" class="btn-panel btn-rojo" style="margin-top:auto;flex-shrink:0;">
                 🚪 Cerrar Sesión
             </button>
 
@@ -180,10 +300,18 @@
 
     </div>
 
+    <script>
+        function cambiarTab(tabId, btnClickeado) {
+            document.querySelectorAll('.tab-contenido').forEach(t => t.classList.remove('activa'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activa'));
+            document.getElementById('tab-' + tabId).classList.add('activa');
+            btnClickeado.classList.add('activa');
+        }
+    </script>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="app.js"></script>
 </body>
-
 </html>
