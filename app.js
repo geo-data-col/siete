@@ -1258,18 +1258,36 @@ function aplicarFiltrosComunaCompleto() {
 // ==========================================================================
 function descargarImagenMapa() {
     const nombreComuna = comunaFiltradaActual || 'mapa';
-    mostrarNotificacion("📸 Capturando imagen del mapa...");
+    mostrarNotificacion("📸 Capturando imagen...");
 
-    // Usar leaflet-image
-    if (typeof leafletImage === 'undefined') {
-        // Cargar librería dinámicamente
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/leaflet-image@0.4.0/leaflet-image.js';
-        script.onload = () => capturarMapa(nombreComuna);
-        document.head.appendChild(script);
-    } else {
-        capturarMapa(nombreComuna);
-    }
+    const elementoMapa = document.getElementById('mapa');
+
+    html2canvas(elementoMapa, {
+        useCORS: true,
+        allowTaint: true,
+        scale: 1.5,
+        logging: false,
+    }).then(canvas => {
+        // Agregar título
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.fillRect(0, 0, canvas.width, 46);
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = `bold ${Math.round(canvas.width * 0.022)}px Arial`;
+        ctx.fillText(
+            `🛡️ SIETE — ${nombreComuna} — ${new Date().toLocaleDateString('es-CO')}`,
+            14, 30
+        );
+
+        const link = document.createElement('a');
+        link.download = `SIETE_${nombreComuna.replace(/ /g,'_')}_${new Date().toISOString().slice(0,10)}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        mostrarNotificacion("✅ Imagen descargada");
+    }).catch(err => {
+        console.error(err);
+        mostrarNotificacion("❌ Error capturando imagen");
+    });
 }
 
 function capturarMapa(nombreComuna) {
